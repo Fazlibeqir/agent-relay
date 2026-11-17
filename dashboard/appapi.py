@@ -267,9 +267,7 @@ def install_relay(target, commit=False):
         if dst.exists(): log.append("kept " + f)
         elif (TEMPLATE / f).exists():
             data = (TEMPLATE / f).read_bytes()
-            if f.endswith((".sh", ".py")): data = data.replace(b"
-", b"
-")      # scripts must keep Unix line endings or bash fails on Linux and Git Bash
+            if f.endswith((".sh", ".py")): data = data.replace(b"\r\n", b"\n")      # scripts must keep Unix line endings or bash fails on Linux and Git Bash
             dst.write_bytes(data); log.append("copied " + f); new.append(f)
     s = t / "relay.settings.json"
     ex = RES / "relay.settings.example.json"
