@@ -265,7 +265,12 @@ def install_relay(target, commit=False):
     for f in RELAY_FILES:
         dst = t / f
         if dst.exists(): log.append("kept " + f)
-        elif (TEMPLATE / f).exists(): shutil.copyfile(TEMPLATE / f, dst); log.append("copied " + f); new.append(f)
+        elif (TEMPLATE / f).exists():
+            data = (TEMPLATE / f).read_bytes()
+            if f.endswith((".sh", ".py")): data = data.replace(b"
+", b"
+")      # scripts must keep Unix line endings or bash fails on Linux and Git Bash
+            dst.write_bytes(data); log.append("copied " + f); new.append(f)
     s = t / "relay.settings.json"
     ex = RES / "relay.settings.example.json"
     if not s.exists() and ex.exists(): shutil.copyfile(ex, s); log.append("created relay.settings.json")
