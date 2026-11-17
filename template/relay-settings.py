@@ -1,0 +1,151 @@
+"""Relay settings: which model plays which role. Read by relay.sh before every agent call, so a change needs no restart.
+
+  python relay-settings.py shell [file]      print shell assignments (S_*) for relay.sh; problems go to stderr as 'settings: ...'
+  python relay-settings.py check [file]      print problems as JSON {"errors": [...], "warnings": [...]}; exit 2 on errors
+  python relay-settings.py show  [file]      print the effective settings as JSON
+
+File: relay.settings.json next to relay.sh (ignored by git). Missing, unreadable or invalid -> the built-in defaults, which are exactly
+what the relay did before this file existed. Environment variables set in relay.sh (CLAUDE_MODEL, CODEX_MODEL, FALLBACKS, ...) still win.
+
+Roles: dispatcher, builder, reviewer, cleaner. A role set to "none" (or left out) is skipped. Only Claude is verified for dispatcher and
+reviewer (they need task-board access and output the relay can parse): any other provider there needs "experimental": true on the role.
+"""
+import json, os, pathlib, re, sys
+
+PROVIDERS = ("claude", "codex", "copilot", "opencode")
+SAFE = re.compile(r"^[A-Za-z0-9._/:@+-]{1,80}$")
+DEFAULTS = {
+    "roles": {
+        "dispatcher": {"provider": "claude", "model": "claude-sonnet-5-5", "effort": "high"},
+        "builder":    {"provider": "codex", "model": "auto", "effort": "auto"},   # auto = follow the task's RECOMMENDED_AI line
+        "reviewer":   {"provider": "claude", "model": "claude-sonnet-5-5", "effort": "high"},
+        "cleaner":    {"provider": "none"},
+    },
+    "fallbackBuilders": ["copilot", "opencode"],
+    "fallbackMaxPerDay": 10,
+    "models": {"copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5"},
+    "idleChores": ["backend", "digest"],
+}
+
+
+def custom_providers(path):
+    """Other AIs the person added (relay.providers.json next to the settings file): {id: spec}."""
+    f = pathlib.Path(path).with_name("relay.providers.json")
+    try: items = json.loads(f.read_text(encoding="utf-8-sig")).get("providers", [])
+    except (OSError, ValueError, AttributeError): return {}
+    return {x["id"]: x for x in items if isinstance(x, dict) and re.match(r"^[a-z0-9][a-z0-9-]{0,30}$", str(x.get("id", "")))}
+
+
+def all_providers(path):
+    return list(PROVIDERS) + [i for i in custom_providers(path) if i not in PROVIDERS]
+
+
+def build_cmd(spec, model, effort):
+    """The command line for a custom AI: bin + base args + model flag + effort flag (+ the prompt-file instruction). First element: STDIN or FILE."""
+    args = [str(spec["bin"])] + [str(a) for a in spec.get("args", [])]
+    if model and model != "auto": args += [str(a).replace("{model}", model) for a in spec.get("modelArgs", [])]
+    if effort and effort != "auto": args += [str(a).replace("{effort}", effort) for a in spec.get("effortArgs", [])]
+    mode = "FILE" if spec.get("promptMode") == "file" else "STDIN"
+    if mode == "FILE": args += [str(a).replace("{promptfile}", "relay-fallback-prompt.txt") for a in spec.get("promptArgs", [])]
+    return [mode] + args
+
+
+def load(path):
+    problems = {"errors": [], "warnings": []}
+    cfg = json.loads(json.dumps(DEFAULTS))
+    cfg["_custom"] = list(custom_providers(path))
+    p = pathlib.Path(path)
+    if not p.exists():
+        return cfg, problems
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8-sig"))
+        if not isinstance(raw, dict): raise ValueError("top level must be an object")
+    except (OSError, ValueError) as ex:
+        problems["errors"].append(f"{p.name} unreadable ({ex}); using the built-in defaults")
+        return cfg, problems
+    for role, val in (raw.get("roles") or {}).items():
+        if role not in cfg["roles"]:
+            problems["warnings"].append(f"unknown role '{role}' ignored"); continue
+        if isinstance(val, str): val = {"provider": val}
+        if not isinstance(val, dict):
+            problems["errors"].append(f"role {role}: must be an object"); continue
+        cfg["roles"][role] = {**cfg["roles"][role], **val} if val.get("provider", cfg["roles"][role].get("provider")) == cfg["roles"][role].get("provider") else dict(val)
+    for k in ("fallbackBuilders", "fallbackMaxPerDay", "idleChores"):
+        if k in raw: cfg[k] = raw[k]
+    cfg["models"].update(raw.get("models") or {})
+    return cfg, problems
+
+
+def validate(cfg, problems):
+    errs = problems["errors"]
+    roles = cfg["roles"]
+    for role, r in roles.items():
+        prov = r.get("provider", "none")
+        if prov == "none": continue
+        custom = cfg.get("_custom", [])
+        if prov not in PROVIDERS and prov not in custom:
+            errs.append(f"role {role}: unknown provider '{prov}' (choose from {', '.join(list(PROVIDERS) + custom)} or none)")
+            continue
+        if prov in custom and not r.get("experimental"):
+            errs.append(f"role {role}: {prov} is a custom AI that the relay cannot stop from using git (no deny list), so it needs \"experimental\": true")
+        for key in ("model", "effort"):
+            v = r.get(key)
+            if v is not None and (not isinstance(v, str) or not SAFE.match(v)): errs.append(f"role {role}: {key} has characters that are not allowed")
+        if role in ("dispatcher", "reviewer") and prov != "claude" and not r.get("experimental"):
+            errs.append(f"role {role}: only Claude is verified here (task-board access and parsable output); set \"experimental\": true to try {prov}")
+    for role in ("dispatcher", "builder", "reviewer"):
+        if roles[role].get("provider", "none") == "none": errs.append(f"role {role} cannot be none")
+    b, rv = roles["builder"], roles["reviewer"]
+    if b.get("provider") == rv.get("provider") and (b.get("model", "auto") == rv.get("model", "auto") or "auto" in (b.get("model"), rv.get("model"))):
+        errs.append("reviewer must be a different model from the builder (no self-review)")
+    fb = cfg["fallbackBuilders"]
+    if not isinstance(fb, list) or any(x not in ["copilot", "opencode", "codex"] + cfg.get("_custom", []) for x in fb): errs.append("fallbackBuilders must be a list of copilot / opencode / codex / custom AIs")
+    elif b.get("provider") in fb: problems["warnings"].append(f"builder {b.get('provider')} removed from its own fallback chain")
+    if not isinstance(cfg["fallbackMaxPerDay"], int) or not 0 <= cfg["fallbackMaxPerDay"] <= 200: errs.append("fallbackMaxPerDay must be 0-200")
+    for k, v in cfg["models"].items():
+        if not isinstance(v, str) or not SAFE.match(v): errs.append(f"models.{k} has characters that are not allowed")
+    if not isinstance(cfg["idleChores"], list) or any(x not in ("backend", "digest") for x in cfg["idleChores"]): errs.append("idleChores may contain backend and digest")
+
+
+def effective(path):
+    cfg, problems = load(path)
+    validate(cfg, problems)
+    if problems["errors"]:
+        good, _ = load(os.devnull)   # a bad file changes nothing: run on the defaults
+        return good, problems, False
+    cfg["fallbackBuilders"] = [x for x in cfg["fallbackBuilders"] if x != cfg["roles"]["builder"]["provider"]]
+    return cfg, problems, True
+
+
+def shell(path):
+    cfg, problems, ok = effective(path)
+    for e in problems["errors"]: print("settings: ERROR " + e + " -- using the defaults", file=sys.stderr)
+    for w in problems["warnings"]: print("settings: " + w, file=sys.stderr)
+    out = []
+    for role in ("dispatcher", "builder", "reviewer", "cleaner"):
+        r = cfg["roles"][role]
+        for k in ("provider", "model", "effort"):
+            out.append(f"S_{role.upper()}_{k.upper()}='{r.get(k, '')}'")
+    out.append(f"S_FALLBACKS='{' '.join(cfg['fallbackBuilders'])}'")
+    out.append(f"S_FALLBACK_MAX='{cfg['fallbackMaxPerDay']}'")
+    out.append(f"S_COPILOT_MODEL='{cfg['models']['copilot']}'")
+    out.append(f"S_OPENCODE_MODEL='{cfg['models']['opencode']}'")
+    out.append(f"S_ADVISOR='{cfg['models']['advisor']}'")
+    out.append(f"S_IDLE_CHORES='{' '.join(cfg['idleChores'])}'")
+    out.append(f"S_VALID='{1 if ok else 0}'")
+    print("\n".join(out))
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
+    path = sys.argv[2] if len(sys.argv) > 2 else str(pathlib.Path(__file__).with_name("relay.settings.json"))
+    if cmd == "shell": shell(path)
+    elif cmd == "check":
+        cfg, problems = load(path); validate(cfg, problems); print(json.dumps(problems)); sys.exit(2 if problems["errors"] else 0)
+    elif cmd == "cmd":      # relay-settings.py cmd <provider> <model> <effort>  -> STDIN|FILE then one argument per line
+        spec = custom_providers(path).get(sys.argv[3] if len(sys.argv) > 3 else "")
+        if not spec: sys.exit(1)
+        print(chr(10).join(build_cmd(spec, sys.argv[4] if len(sys.argv) > 4 else "", sys.argv[5] if len(sys.argv) > 5 else "")))
+    elif cmd == "show":
+        cfg, problems, ok = effective(path); print(json.dumps({"settings": cfg, "valid": ok, **problems}, indent=1))
+    else: sys.exit("usage: relay-settings.py shell|check|show [file]")

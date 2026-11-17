@@ -1,0 +1,12 @@
+{
+  "roles": {
+    "dispatcher": { "provider": "claude", "model": "claude-sonnet-5-5", "effort": "high" },
+    "builder":    { "provider": "codex",  "model": "auto", "effort": "auto" },
+    "reviewer":   { "provider": "claude", "model": "claude-sonnet-5-5", "effort": "high" },
+    "cleaner":    { "provider": "none" }
+  },
+  "fallbackBuilders": ["copilot", "opencode"],
+  "fallbackMaxPerDay": 10,
+  "models": { "copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5" },
+  "idleChores": ["backend", "digest"]
+}
