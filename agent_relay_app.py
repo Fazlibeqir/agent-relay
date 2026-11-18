@@ -10,6 +10,27 @@ if sys.stdout is None: sys.stdout = open(os.devnull, "w")      # the packaged ap
 if sys.stderr is None: sys.stderr = open(os.devnull, "w")
 base = pathlib.Path(getattr(sys, "_MEIPASS", pathlib.Path(__file__).parent))
 sys.path.insert(0, str(base if hasattr(sys, "_MEIPASS") else base / "dashboard"))
+
+
+def unblock_download():
+    """Windows marks every file of a downloaded zip as 'from the internet' and the window library (a .NET component) refuses to load such files.
+    Clear that mark on this app's own folder before the window library is imported, so a freshly extracted zip just works."""
+    if os.name != "nt" or not hasattr(sys, "_MEIPASS"): return
+    exe = sys.executable
+    try:
+        with open(exe + ":Zone.Identifier", "rb"): pass          # the mark is a hidden stream on the file; opening it fails when there is none
+    except OSError:
+        return
+    try:
+        import subprocess
+        folder = str(pathlib.Path(exe).parent).replace("'", "''")
+        subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Get-ChildItem -LiteralPath '%s' -Recurse -File | Unblock-File" % folder],
+                       creationflags=0x08000000, timeout=180, stdin=subprocess.DEVNULL, capture_output=True)
+    except Exception:
+        pass
+
+
+unblock_download()
 import osops, server
 
 ASSETS = base / "assets"

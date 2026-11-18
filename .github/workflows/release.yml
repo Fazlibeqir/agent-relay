@@ -116,7 +116,7 @@ jobs:
           cat > notes.md <<'EOF'
           Agent Relay turns an idea (or a project you already have) into a plan and builds it task by task with several AI tools, while you watch. It is a desktop app with its own window.
 
-          **Windows (10 or 11):** download `AgentRelay-windows-x64.zip`, extract it, and double-click `AgentRelay.exe` inside. Windows SmartScreen may warn once because the file is not code-signed (More info, then Run anyway).
+          **Windows (10 or 11):** download `AgentRelay-windows-x64.zip`, extract it, and double-click `AgentRelay.exe` inside. Windows SmartScreen may warn once because the file is not code-signed (More info, then Run anyway). If the app opens in your browser instead of its own window, right-click the zip, choose Properties, tick Unblock, and extract it again.
 
           **Linux (x86_64, a normal desktop):** download `AgentRelay-linux-x86_64.tar.gz`, then `tar -xzf AgentRelay-linux-x86_64.tar.gz && ./AgentRelay/AgentRelay`.
           It needs a few common libraries; on Debian or Ubuntu: `sudo apt install libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1`.
