@@ -13,7 +13,7 @@ NO_WINDOW = osops.NO_WINDOW
 APPDATA = (pathlib.Path(os.environ["APPDATA"]) if IS_WIN and os.environ.get("APPDATA") else pathlib.Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))) / "AgentRelay"
 RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-pick.py", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
 GITIGNORE = ("relay.log", "relay-tests.log", "relay-live-*.log", "relay-live-*.start", "relay-console.log", "relay-console.err", ".relay.lock/",
-             "relay.settings.json", "relay.providers.json", "relay-requests/", "relay-priority.txt", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
+             "relay.settings.json", "relay.providers.json", "relay-requests/", "relay-priority.txt", "OWNER-REQUESTS.md", "OWNER-REQUESTS.json", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
              "relay-idle-*.stamp", "relay-idle-*.log", "relay-commit.txt", "CURRENT_TASK.md", "REVIEW.md", "OWNER-REVIEW-DIGEST.md")
 KNOWN_PROVIDERS = ("claude", "codex", "copilot", "opencode")
 
@@ -374,7 +374,8 @@ def list_tasks(project):
         done_n = sum(1 for g in gates if g.group(1) != " ")
         open_auto = sum(1 for g in auto if g.group(1) == " "); open_human = sum(1 for g in human if g.group(1) == " ")
         state = "done" if (gates and not open_auto and not open_human) or re.match(r"(?i)^status:\s*done\b", status) else ("owner" if gates and not open_auto else "todo")
-        out.append({"id": f.stem, "title": title, "status": status, "rec": rec or {"provider": "", "model": "", "effort": "", "raw": ""},
+        fix_open = any(g.group(1) == " " and "Fix what the owner asked" in g.group(2) for g in gates)
+        out.append({"id": f.stem, "title": title, "status": status, "fixRequested": fix_open, "rec": rec or {"provider": "", "model": "", "effort": "", "raw": ""},
                     "state": state, "gates": len(gates), "gatesDone": done_n, "completion": round(100 * done_n / len(gates)) if gates else 0})
     return out
 
@@ -534,4 +535,69 @@ def request_changes(project, task_id, note):
     open(f, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
     _after_edit(project, task_id, "%s: changes asked for by you in the app" % task_id)
     queue_next(project, task_id)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- projects that keep their live status in their own board (relay.sh): a mailbox the dispatcher reads
+OWNER_KINDS = ("next", "fix", "approved")
+
+
+def _owner_load(project):
+    try: items = json.loads((pathlib.Path(project) / "OWNER-REQUESTS.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError): return []
+    return [i for i in items if isinstance(i, dict) and i.get("kind") in OWNER_KINDS and re.fullmatch(r"T\d+[a-z]?", str(i.get("task", "")))]
+
+
+def _owner_current(project):
+    try:
+        cur = (pathlib.Path(project) / "CURRENT_TASK.md").read_text(encoding="utf-8", errors="replace").splitlines()
+        m = re.match(r"(T\d+[a-z]?)", cur[1].strip()) if len(cur) > 1 else None
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
+def _owner_save(project, items):
+    p = pathlib.Path(project)
+    with open(p / "OWNER-REQUESTS.json", "w", encoding="utf-8", newline="\n") as fh: json.dump(items, fh, indent=1)
+    def sect(kind): return [i for i in items if i["kind"] == kind]
+    lines = ["# Owner requests", "",
+             "Written by the Agent Relay app when the owner presses a button. The dispatcher reads this file at the start of every round (see the OWNER REQUESTS rule).", "",
+             "## DO NEXT (the first line is the most wanted)"]
+    lines += ["- %s (%s)" % (i["task"], i["at"]) for i in sect("next")] or ["(none)"]
+    lines += ["", "## FIX (the owner's feedback on a task: it stays open until the owner approves it)"]
+    lines += ["- %s (%s): %s" % (i["task"], i["at"], i.get("note", "")) for i in sect("fix")] or ["(none)"]
+    lines += ["", "## APPROVED (the owner reviewed these and is happy; do not rework them. The owner ticks Human signed off in the board themselves)"]
+    lines += ["- %s (%s)" % (i["task"], i["at"]) for i in sect("approved")] or ["(none)"]
+    with open(p / "OWNER-REQUESTS.md", "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(lines) + "\n")
+
+
+def owner_requests(project):
+    """Active requests. A 'do next' is dropped as soon as the relay is building that task."""
+    items = _owner_load(project)
+    cur = _owner_current(project)
+    kept = [i for i in items if not (i["kind"] == "next" and i["task"] == cur)]
+    if len(kept) != len(items): _owner_save(project, kept)
+    return kept
+
+
+def owner_request(project, kind, task_id, note=""):
+    if kind not in OWNER_KINDS or not re.fullmatch(r"T\d+[a-z]?", task_id or ""): return {"ok": False, "error": "bad request"}
+    if not (pathlib.Path(project) / "tasks" / (task_id + ".md")).exists(): return {"ok": False, "error": "unknown task"}
+    note = " ".join((note or "").split())[:400]
+    if kind == "fix" and len(note) < 3: return {"ok": False, "error": "Say what should be changed."}
+    items = owner_requests(project)
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    if kind == "approved": items = [i for i in items if i["task"] != task_id]
+    elif kind == "next": items = [i for i in items if not (i["task"] == task_id and i["kind"] in ("next", "approved"))]
+    else: items = [i for i in items if not (i["task"] == task_id and i["kind"] == "approved")]
+    entry = {"id": time.strftime("%Y%m%d-%H%M%S") + "-" + task_id, "kind": kind, "task": task_id, "at": stamp, "note": note}
+    items = ([entry] + items) if kind == "next" else (items + [entry])
+    _owner_save(project, items)
+    return {"ok": True}
+
+
+def owner_cancel(project, task_id, kind):
+    items = [i for i in _owner_load(project) if not (i["task"] == task_id and i["kind"] == kind)]
+    _owner_save(project, items)
     return {"ok": True}

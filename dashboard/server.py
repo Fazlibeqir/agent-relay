@@ -7,7 +7,7 @@ It reads relay.log (phase, task, rounds, limits), relay-live-<label>.log/.start 
 relay-fallback-<tool>.count (fallback builds today), PLAYTEST_QUEUE.md (what waits for the owner), and each provider's own
 usage source when it has one (Codex writes its rate limits into its session logs).
 """
-import customai, existing, osops, planner, subprocess, threading, argparse, importlib.util, json, os, pathlib, re, statistics, tempfile, time, glob, datetime
+import customai, digest, existing, osops, planner, subprocess, threading, argparse, importlib.util, json, os, pathlib, re, statistics, tempfile, time, glob, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = pathlib.Path(__file__).parent
@@ -537,13 +537,19 @@ class Handler(BaseHTTPRequestHandler):
                 ch = normalize_task_recs(Handler.relay, self._reviewer_model())
                 r = planner.commit_plan(str(Handler.relay)); r["normalized"] = ch
                 return reply(r)
-            if path in ("/api/task/approve", "/api/task/changes", "/api/task/next"):
+            if path in ("/api/task/approve", "/api/task/changes", "/api/task/next", "/api/task/cancel"):
                 if need_project(): return
-                if appapi.relay_script(Handler.relay) != "relay-files.sh":
-                    return reply({"ok": False, "error": "This project keeps its review state in its own board, so approve or ask for changes there."}, 400)
-                if path.endswith("approve"): return reply(appapi.approve_task(Handler.relay, body.get("task", "")))
-                if path.endswith("changes"): return reply(appapi.request_changes(Handler.relay, body.get("task", ""), body.get("note", "")))
-                return reply(appapi.queue_next(Handler.relay, body.get("task", "")))
+                mode = appapi.relay_script(Handler.relay)
+                if mode == "relay-files.sh":
+                    if path.endswith("approve"): return reply(appapi.approve_task(Handler.relay, body.get("task", "")))
+                    if path.endswith("changes"): return reply(appapi.request_changes(Handler.relay, body.get("task", ""), body.get("note", "")))
+                    if path.endswith("next"): return reply(appapi.queue_next(Handler.relay, body.get("task", "")))
+                    return reply({"ok": False, "error": "nothing to cancel here"}, 400)
+                if mode == "relay.sh":      # a project whose board is elsewhere: leave a request for its dispatcher
+                    if path.endswith("cancel"): return reply(appapi.owner_cancel(Handler.relay, body.get("task", ""), body.get("kind", "")))
+                    kind = {"approve": "approved", "changes": "fix", "next": "next"}[path.rsplit("/", 1)[1]]
+                    return reply(appapi.owner_request(Handler.relay, kind, body.get("task", ""), body.get("note", "")))
+                return reply({"ok": False, "error": "This project has no relay yet."}, 400)
             if path == "/api/task/recommend":
                 if need_project(): return
                 return reply(appapi.set_task_rec(Handler.relay, body.get("task", ""), body.get("provider", ""), body.get("model", ""), body.get("effort", "")))
@@ -575,8 +581,21 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/wizard": return reply(wizard_state(self.relay))
             if p == "/api/tasks":
                 nt = appapi.next_tasks(self.relay, 1) if self.relay else {}
-                return reply({"tasks": appapi.list_tasks(self.relay) if self.relay else [], "current": nt.get("current", ""),
-                              "actions": bool(self.relay and appapi.relay_script(self.relay) == "relay-files.sh")})
+                mode = appapi.relay_script(self.relay) if self.relay else ""
+                tasks = appapi.list_tasks(self.relay) if self.relay else []
+                queued = []
+                if mode == "relay-files.sh":
+                    pf = self.relay / "relay-priority.txt"
+                    if pf.exists(): queued = [l.strip() for l in pf.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+                    for t in tasks: t["queuedNext"] = t["id"] in queued; t["approved"] = False
+                elif mode == "relay.sh":
+                    reqs = appapi.owner_requests(self.relay)
+                    for t in tasks:
+                        mine = [r for r in reqs if r["task"] == t["id"]]
+                        t["queuedNext"] = any(r["kind"] == "next" for r in mine); t["fixRequested"] = any(r["kind"] == "fix" for r in mine)
+                        t["approved"] = any(r["kind"] == "approved" for r in mine)
+                return reply({"tasks": tasks, "current": nt.get("current", ""), "mode": "files" if mode == "relay-files.sh" else "board" if mode == "relay.sh" else "none",
+                              "actions": mode in ("relay-files.sh", "relay.sh")})
             if p == "/api/setup":
                 s = appapi.detect_setup()
                 manual = appapi.load_config().get("manualSignedIn", {})
@@ -589,7 +608,10 @@ class Handler(BaseHTTPRequestHandler):
             if p.startswith("/api/state"): return reply(build_state(self.relay, self.providers + custom_cards(self.relay)))
             if p in ("/", "/index.html"): return self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
             if p == "/api/settings": return reply(settings_state(self.relay))
-            if p == "/digest":
+            if p in ("/digest", "/digest/"):
+                if not self.relay: return self._send(200, "<p>Choose a project first.</p>", "text/html; charset=utf-8")
+                return self._send(200, digest.page(self.relay), "text/html; charset=utf-8")
+            if p == "/digest.md":
                 f = self.relay / "OWNER-REVIEW-DIGEST.md"
                 return self._send(200, f.read_text(encoding="utf-8", errors="replace") if f.exists() else "No digest yet.", "text/plain; charset=utf-8")
         except Exception as ex:

@@ -371,16 +371,21 @@ async function taskTable(sel,onchange,opts){
   const u=usableAIs().map(x=>x.id).concat(((SETUP||{}).tools||[]).filter(x=>x.custom&&x.found).map(x=>x.id));
   const provs=["",...new Set(u)];let t=all;
   const f=opts.filter;
-  if(f&&f!=="all")t=t.filter(k=>{const c=catOf(k,cur);return f==="todo"?(c==="progress"||c==="new"||c==="building"):f==="progress"?(c==="progress"||c==="building"):c===f});
+  if(f&&f!=="all")t=t.filter(k=>{const c=catOf(k,cur);return f==="todo"?(c==="progress"||c==="new"||c==="building"):f==="progress"?(c==="progress"||c==="building"):f==="done"?(c==="done"||c==="approved"):c===f});
   if(opts.q){const q=opts.q.toLowerCase();t=t.filter(k=>(k.id+" "+k.title).toLowerCase().includes(q))}
   const total=t.length;if(opts.limit)t=t.slice(0,opts.limit);
   if(opts.count&&$(opts.count))$(opts.count).textContent=total+" task"+(total===1?"":"s");
-  const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done"};
+  const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done",approved:"approved by you"};
   const actions=k=>{const c=catOf(k,cur);if(!acts)return"";
-    if(c==="review")return`<button class="go" data-act="approve">Looks good</button> <button data-act="changes">Needs changes…</button>`;
-    if(c==="progress"||c==="new")return`<button data-act="next">Do next</button>`;return""};
+    const cancel=res.mode==="board"?(k.queuedNext?` <button data-act="cancel" data-kind="next" title="Take it off the priority list">✕ next</button>`:"")+(k.fixRequested?` <button data-act="cancel" data-kind="fix" title="Withdraw your feedback">✕ fix</button>`:""):"";
+    if(c==="review")return`<button class="go" data-act="approve">Looks good</button> <button data-act="changes">Needs changes…</button>${cancel}`;
+    if(c==="building")return`<button data-act="changes">Fix…</button>${cancel}`;
+    if(c==="progress")return`<button data-act="next">Build next</button> <button data-act="changes">Fix…</button>${cancel}`;
+    if(c==="new")return`<button data-act="next">Build next</button>${cancel}`;
+    return`<button data-act="changes">Reopen…</button>${cancel}`};
+  const tags=k=>(k.queuedNext?' <span class="badge todo">next</span>':"")+(k.fixRequested?' <span class="badge owner">fix requested</span>':"");
   $(sel).innerHTML=t.length?`<div style="overflow-x:auto"><table class="tt"><tr class="h"><td>Task</td><td>Status</td>${acts?"<td></td>":""}<td>AI</td><td>Model</td><td>Reasoning</td></tr>`+t.map(k=>{const c=catOf(k,cur);return`<tr data-t="${k.id}"><td style="max-width:280px"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
-    <td style="white-space:nowrap"><span class="badge ${c==="building"||c==="progress"||c==="new"?"todo":c==="review"?"owner":"done"}">${lab[c]}</span><div class="row small mute" style="width:110px;margin-top:3px"><span>${k.completion}%</span><span>${k.gatesDone}/${k.gates}</span></div><div style="width:110px">${bar(k.completion,"task")}</div></td>
+    <td style="white-space:nowrap"><span class="badge ${c==="building"||c==="progress"||c==="new"?"todo":c==="review"?"owner":"done"}">${lab[c]}</span>${tags(k)}<div class="row small mute" style="width:110px;margin-top:3px"><span>${k.completion}%</span><span>${k.gatesDone}/${k.gates}</span></div><div style="width:110px">${bar(k.completion,"task")}</div></td>
     ${acts?`<td style="white-space:nowrap">${actions(k)}</td>`:""}
     <td><select data-f="p">${provs.map(x=>`<option value="${x}" ${x===k.rec.provider?"selected":""}>${x||"(follow the setting)"}</option>`).join("")}</select></td><td><select data-f="m"></select></td><td><select data-f="e"></select></td></tr>`}).join("")+"</table></div>"+
     (opts.limit&&total>t.length?`<div style="margin-top:10px"><button id="tmore">Show more (${total-t.length} left)</button></div>`:""):'<div class="mute">No tasks here.</div>';
@@ -396,7 +401,8 @@ async function taskTable(sel,onchange,opts){
     tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save;
     tr.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;let r;
       if(a==="approve"){if(!confirm("Mark "+k.id+" as OK?"+NL+NL+"This ticks your own check on the task and finishes it. You are the one saying it is fine."))return;r=await post("/api/task/approve",{task:k.id})}
-      else if(a==="changes"){const note=prompt("What should be fixed or changed in "+k.id+"?"+NL+"Be specific: the relay turns this into a check the AI must pass.");if(!note)return;r=await post("/api/task/changes",{task:k.id,note})}
+      else if(a==="changes"){const note=prompt("What should be fixed or changed in "+k.id+"?"+NL+"Be specific: the AI must address exactly this.");if(!note)return;r=await post("/api/task/changes",{task:k.id,note})}
+      else if(a==="cancel"){r=await post("/api/task/cancel",{task:k.id,kind:b.dataset.kind})}
       else{r=await post("/api/task/next",{task:k.id});if(r.ok)alert(k.id+" will be built next (when the relay picks its next task).")}
       if(!r.ok){alert(r.error);return}refresh();tick()})})}
 async function stepModels(){
@@ -437,15 +443,15 @@ function renderNextTasks(s){const q=s.queue;if(!q)return;
   const sa=$("#seeall");if(sa)sa.onclick=e=>{e.preventDefault();showTab("tasks")};
   const tb=document.querySelector('[data-tab=tasks]');if(tb)tb.textContent="Tasks"+(q.waitingCount?" ("+q.waitingCount+" to review)":"")}
 const CATS=[["review","Needs your review"],["progress","In progress"],["new","Not started"],["done","Done"],["todo","To do (all)"],["all","All"]];
-function catOf(k,cur){if(k.state==="done")return"done";if(k.state==="owner")return"review";if(k.id===cur)return"building";return k.completion>0?"progress":"new"}
+function catOf(k,cur){if(k.state==="done")return"done";if(k.approved&&k.state==="owner")return"approved";if(k.state==="owner")return"review";if(k.id===cur)return"building";return k.completion>0?"progress":"new"}
 async function drawTasksTab(){
-  const res=await get("/api/tasks"),cur=(WZ&&WZ.project&&WZ.project.running)?res.current:"",counts={review:0,progress:0,new:0,done:0,building:0};res.tasks.forEach(k=>counts[catOf(k,cur)]++);
+  const res=await get("/api/tasks"),cur=(WZ&&WZ.project&&WZ.project.running)?res.current:"",counts={review:0,progress:0,new:0,done:0,building:0,approved:0};res.tasks.forEach(k=>counts[catOf(k,cur)]++);
   if(!TT.touched)TT.filter=counts.review?"review":"todo";
-  const chip=(v,label,n)=>`<button class="chip ${TT.filter===v?"on":""}" data-f="${v}">${label} <b>${n}</b></button>`;
+  counts.done+=counts.approved||0;const chip=(v,label,n)=>`<button class="chip ${TT.filter===v?"on":""}" data-f="${v}">${label} <b>${n}</b></button>`;
   $("#tab-tasks").innerHTML=`<div class="card">
     <div class="row2" style="margin-bottom:10px">${chip("review","Needs your review",counts.review)}${chip("progress","In progress",counts.progress+counts.building)}${chip("new","Not started",counts.new)}${chip("done","Done",counts.done)}${chip("all","All",res.tasks.length)}</div>
     <div class="row2" style="margin-bottom:10px"><input id="tt_q" size="28" placeholder="Search tasks" value="${esc(TT.q)}"><span class="mute small" id="tt_count"></span></div>
-    <div class="mute small" style="margin-bottom:8px">${res.actions?"<b>Needs your review</b> = the AI finished every automatic check and only your own check is left. <b>Looks good</b> marks it done; <b>Needs changes</b> reopens it with your note and the relay builds the fix next. <b>Do next</b> moves a task to the front.":"The status here comes from the task files. This project keeps its live status and its reviews in its own board, so the review buttons are not available here."}</div>
+    <div class="mute small" style="margin-bottom:8px">${res.mode==="files"?"<b>Needs your review</b> = the AI finished every automatic check and only your own check is left. <b>Looks good</b> marks it done; <b>Needs changes</b> or <b>Fix</b> adds your note as a new check and the relay builds the fix next; <b>Build next</b> moves a task to the front.":res.mode==="board"?"This project keeps its live status in its own board, so the percentages come from its task files. Your button clicks are written to <code>OWNER-REQUESTS.md</code>, which the relay's dispatcher reads at the start of every round: <b>Build next</b> is a priority, <b>Fix</b> is your feedback (the task stays open until you approve it), <b>Looks good</b> records your approval. The <i>Human signed off</i> box in the board is still yours to tick.":"This project has no relay yet."}</div>
     <div id="tasktable">loading…</div></div>`;
   document.querySelectorAll("#tab-tasks .chip").forEach(c=>c.onclick=()=>{TT.filter=c.dataset.f;TT.touched=true;TT.limit=40;drawTasksTab()});
   $("#tt_q").oninput=e=>{TT.q=e.target.value;TT.limit=40;clearTimeout(TT.t);TT.t=setTimeout(drawTable,250)};
@@ -502,7 +508,7 @@ function render(s){
   $("#broke").innerHTML=s.broke.slice().reverse().map(d=>`<li><span class="bad">✗</span> ${d.ts} ${esc(d.msg)}</li>`).join("")||'<li class="ok">nothing broke this run</li>';
   $("#next").innerHTML=(s.next||[]).map(x=>`<li>→ ${esc(x.label)} <span class="mute">(in about ${fmt(x.inSeconds)})</span></li>`).join("")||'<li class="mute">–</li>';
   $("#queue").textContent=s.ownerQueue.length?`${s.ownerQueue.length} tasks: ${s.ownerQueue.join(" ")}`:"nothing waiting";
-  $("#digestlink").innerHTML=s.digest?'<a href="/digest" target="_blank">open the review digest</a>':"";
+  $("#digestlink").innerHTML=s.digest?'<a href="/digest" target="_blank">Open the review page (what to try and judge)</a>':"";
   $("#idle").innerHTML=s.idleChores.map(t=>`<li>${esc(t)}</li>`).join("")||'<li class="mute">none run yet (they run while every AI is out of usage)</li>'}
 async function tick(){if(MODE!=="dash")return;try{const st=await get("/api/state");WZ=await get("/api/wizard");render(st);renderNextTasks(st);headerButtons()}catch(e){$("#status").textContent="NO DATA";$("#status").className="pill stop"}}
 

@@ -6,5 +6,5 @@ cd "$(dirname "$0")"
 .build/venv/bin/python -m pip install --quiet --disable-pip-version-check pyinstaller
 .build/venv/bin/python -m PyInstaller --noconfirm --onefile --name AgentRelay --distpath dist --workpath .build/work --specpath .build \
   --paths dashboard --add-data "dashboard/index.html:." --add-data "dashboard/providers.json:." --add-data "template:template" \
-  --add-data "relay.settings.example.json:." --hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import existing agent_relay_app.py
+  --add-data "relay.settings.example.json:." --hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import existing --hidden-import digest agent_relay_app.py
 echo "Built: $(pwd)/dist/AgentRelay"
