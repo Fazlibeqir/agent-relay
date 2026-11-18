@@ -1,4 +1,5 @@
 <title>Agent Relay</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0.2' y1='0' x2='0.8' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3ClinearGradient id='g2' x1='0.8' y1='0' x2='0.2' y2='1'%3E%3Cstop offset='0' stop-color='%2338bdf8'/%3E%3Cstop offset='1' stop-color='%234f6bf0'/%3E%3C/linearGradient%3E%3ClinearGradient id='g3' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23a5f3fc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z' fill='url(%23g1)'/%3E%3Cpath d='M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z' fill='url(%23g2)' opacity='0.92'/%3E%3Ccircle cx='128' cy='172' r='19' fill='url(%23g3)'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#667085;--line:#e3e6ea;--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00;--bar:#e6e9ee;--acc:#2f6fed}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#161b22;--ink:#e6edf3;--mute:#8b949e;--line:#2a313a;--ok:#3fb950;--bad:#f85149;--warn:#d29922;--bar:#262d36;--acc:#5b8cff;color-scheme:dark}}
@@ -40,14 +41,32 @@ pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8p
 .tabs{display:flex;gap:4px;margin:0 0 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .tab{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:8px 16px;font-weight:600;color:var(--mute)}
 .tab.on{color:var(--ink);border-bottom-color:var(--acc)}
+.by{display:flex;align-items:center;justify-content:center;gap:12px;color:#8b949e;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.by .dv{width:1px;height:26px;background:var(--line,#2a313a)}.by b{font-size:19px;letter-spacing:.2em;color:var(--ink,#e6edf3);font-weight:700;display:block;line-height:1}
+.by a.fb{cursor:pointer;text-transform:none;letter-spacing:0;transition:box-shadow .15s}.by a.fb:hover{box-shadow:0 0 0 1px var(--acc,#5b8cff)}.by img{height:46px}.by .fb{background:#0b0f14;border-radius:10px;padding:4px 12px;display:inline-flex}.by a{color:inherit;text-decoration:none;cursor:pointer;letter-spacing:.06em;text-transform:none;font-size:12px}.by a:hover{color:var(--acc,#5b8cff)}
+footer.by{margin:34px 0 8px;opacity:.85}#splash .by{position:absolute;bottom:26px;color:#8b949e}
+.cols{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin:12px 0;align-items:start}.cols .card{margin:0}
+.sec{margin:18px 0 8px}.aigrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.aic{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--c,#888);border-radius:10px;padding:10px 12px;min-width:0}
+.aih{display:flex;gap:6px;align-items:center;font-size:15px;font-weight:650}.aic .act{margin-top:3px}
+.urow{display:grid;grid-template-columns:58px 1fr 38px;gap:6px;align-items:center;font-size:12px;margin-top:3px}.urow .bar{margin:0}.urow b{text-align:right}
+ul.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}ul.chips li{border:1px solid var(--line);border-radius:99px;padding:1px 10px;font-size:12px}
+.needbig{font-size:34px;font-weight:700;line-height:1}
+#splash{position:fixed;inset:0;z-index:50;background:radial-gradient(circle at 50% 38%,#0f1c2b 0,#0b0f14 62%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#e6edf3;transition:opacity .5s}
+#splash.hide{opacity:0;pointer-events:none}#splash svg{animation:rise .8s ease both}#splash .n{font-size:24px;letter-spacing:.18em;font-weight:600;animation:rise .9s .15s ease both}
+#splash .s{font-size:13px;color:#8b949e}#splash .ld{width:160px;height:3px;background:#1a222c;border-radius:3px;overflow:hidden}
+#splash .ld i{display:block;width:40%;height:100%;background:linear-gradient(90deg,#22d3ee,#3b82f6);border-radius:3px;animation:go 1.3s ease-in-out infinite}
+@keyframes rise{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}@keyframes go{0%{margin-left:-40%}100%{margin-left:100%}}
 .grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
+.btnlink{display:inline-block;padding:6px 14px;border-radius:7px;border:1px solid var(--line);text-decoration:none;color:var(--ink);background:var(--card);font-size:13px}.btnlink:hover{border-color:var(--acc)}
 .chip{border-radius:99px;padding:4px 12px;font-size:13px}.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}.chip b{margin-left:4px}
 .badge{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
 .badge.todo{color:var(--acc);border-color:var(--acc)}.badge.owner{color:var(--warn);border-color:var(--warn)}.badge.done{color:var(--ok);border-color:var(--ok)}
 table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;border-top:1px solid var(--line);vertical-align:middle}table.tt tr.h td{border-top:0;color:var(--mute);font-size:12px}
 </style>
+<div id="splash"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="104" height="104"><defs><linearGradient id="s1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="s2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="s3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#s1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#s2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#s3)"/></svg><div class="n">AGENT RELAY</div><div class="s">Getting things ready…</div><div class="ld"><i></i></div><div class="by" id="splashby"></div></div>
 <main>
-<header><h1>Agent Relay</h1><span id="status" class="pill stop">…</span><span id="meta" class="mute"></span><span style="flex:1"></span>
+<header><h1 style="display:flex;align-items:center;gap:8px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="28" height="28"><defs><linearGradient id="h1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="h2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="h3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#h1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#h2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#h3)"/></svg>Agent Relay</h1><span id="status" class="pill stop">…</span><span id="meta" class="mute"></span><span style="flex:1"></span>
   <button id="btnnew" hidden>New project</button><button id="btnstart" hidden class="go">Start</button><button id="btnstop" hidden>Stop</button><button id="btnquit" title="Close this app (a running relay keeps running)">Quit app</button><span id="clock" class="mute"></span></header>
 
 <div id="setup" hidden>
@@ -60,19 +79,18 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
   <div id="reqbox"></div>
 
   <div id="tab-overview">
-    <div class="card"><h2>Now</h2><div id="now">loading…</div><ul id="next" class="small" style="margin-top:8px"></ul></div>
-    <div class="grid" id="providers"></div>
-    <div class="grid2" style="margin-top:12px">
+    <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">loading…</div><ul id="next" class="chips"></ul></div>
+    <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
+    <div class="cols">
       <div class="card"><h2>Next in line</h2><div id="nexttasks" class="mute">loading…</div></div>
-      <div>
-        <div class="card"><h2>Waiting for you</h2><div id="queue" class="mute"></div><div id="digestlink"></div></div>
-        <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
-      </div>
+      <div class="card"><h2>Needs you</h2><div id="needsyou"><div class="needbig" id="needcount">–</div><div class="mute small" id="needlabel" style="margin:2px 0 8px">tasks waiting for your review</div>
+        <div id="queue" class="mute small"></div><div class="row2" style="margin-top:10px"><a href="/digest" class="btnlink">Open the review page</a><a href="#" id="needtasks" class="btnlink">See them in Tasks</a></div></div></div>
     </div>
-    <div class="grid">
-      <div class="card"><h2>Broke</h2><ul id="broke"></ul></div>
-      <div class="card"><h2>Idle chores</h2><ul id="idle"></ul></div>
+    <div class="cols" style="margin-top:14px">
+      <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
+      <div class="card"><h2>Broke</h2><ul id="broke"></ul><details style="margin-top:8px"><summary class="mute small">Idle chores</summary><ul id="idle"></ul></details></div>
     </div>
+    <div id="digestlink" hidden></div>
   </div>
 
   <div id="tab-tasks" hidden></div>
@@ -85,6 +103,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
   </div>
 </div>
 </main>
+<footer class="by" id="footby"></footer>
 <script>
 const $=s=>document.querySelector(s);
 const fmt=s=>{s=Math.round(Math.abs(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return(h?h+":"+String(m).padStart(2,"0"):String(m))+":"+String(x).padStart(2,"0")};
@@ -109,11 +128,18 @@ function usableAIs(){return ((SETUP||{}).tools||[]).filter(t=>t.found&&(t.signed
 function defaultModel(p){return p==="claude"?"claude-sonnet-5-5":p==="codex"?"gpt-6.1-sol":p==="opencode"?"opencode/deepseek-v4.1-flash-free":""}
 
 /* ------------------------------------------------------------ boot */
+function brandHtml(b){const mark=b&&b.fluxLogo?`<a class="fb" data-ext="https://flux.mk" title="flux.mk"><img src="${b.fluxLogo}" alt="Driven by Flux"></a>`:`<span class="dv"></span><span>Driven by<b>FLUX</b></span>`;
+  return mark+`<span class="dv"></span><a data-ext="https://flux.mk">flux.mk</a>`}
+async function showBrand(){let b=null;try{b=await get("/api/brand")}catch(e){}const h=brandHtml(b);["splashby","footby"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=h});
+  document.querySelectorAll("[data-ext]").forEach(a=>a.onclick=e=>{e.preventDefault();post("/api/open-external",{url:a.dataset.ext})})}
+showBrand();
+function hideSplash(){const s=document.getElementById("splash");if(!s)return;s.classList.add("hide");setTimeout(()=>s.remove(),700)}
+setTimeout(hideSplash,20000);
 async function boot(){
   [SETUP,ENV,WZ,CAT]=await Promise.all([get("/api/setup"),get("/api/env"),get("/api/wizard"),get("/api/models")]);
   const p=WZ.project;
   if(p.exists&&p.hasPlan&&p.hasRelay){MODE="dash"}else{MODE="setup";STEP=firstStep()}
-  apply()}
+  apply();hideSplash()}
 function toolsReady(){const basicsOk=SETUP.basics.every(b=>!b.needed||b.found);return basicsOk&&usableAIs().length>=2}
 function firstStep(){const p=WZ.project;if(!toolsReady()&&!p.exists)return 1;if(!p.exists||!p.hasProposal)return p.exists?3:2;if(!p.hasPlan)return 3;return STEP<4?4:STEP}
 function apply(){
@@ -440,6 +466,7 @@ function renderNextTasks(s){const q=s.queue;if(!q)return;
   const own=WZ&&WZ.project&&WZ.project.script==="relay.sh"?'<div class="mute small" style="margin-top:6px">This project picks its tasks from its own board, so the real order can differ from this list (it is by task number).</div>':"";
   $("#nexttasks").innerHTML=(q.next.length?q.next.map(k=>`<div class="tool" style="padding:7px 0"><span style="min-width:46px"><b>${esc(k.id)}</b></span><span style="flex:1;min-width:160px">${esc(k.title)}${k.current?' <span class="tag" style="background:var(--acc)">building now</span>':""}</span><span class="mute small" style="min-width:130px">${esc(recText(k.rec))}</span><span style="width:64px">${bar(k.completion,"task")}</span></div>`).join(""):'<div class="mute">Nothing left to do.</div>')+
     `<div class="row small mute" style="margin-top:10px"><span>${q.doneCount} done · ${q.todoCount} to do · ${q.waitingCount} waiting for you</span><a href="#" id="seeall">See all ${q.total} tasks →</a></div>`+own;
+  const nc=$("#needcount");if(nc){nc.textContent=q.waitingCount;$("#needlabel").textContent=q.waitingCount===1?"task waiting for your review":"tasks waiting for your review";const nt=$("#needtasks");if(nt)nt.onclick=e=>{e.preventDefault();TT.filter="review";TT.touched=true;showTab("tasks")}}
   const sa=$("#seeall");if(sa)sa.onclick=e=>{e.preventDefault();showTab("tasks")};
   const tb=document.querySelector('[data-tab=tasks]');if(tb)tb.textContent="Tasks"+(q.waitingCount?" ("+q.waitingCount+" to review)":"")}
 const CATS=[["review","Needs your review"],["progress","In progress"],["new","Not started"],["done","Done"],["todo","To do (all)"],["all","All"]];
@@ -493,22 +520,22 @@ function render(s){
   }else n=s.alive?"starting…":"The relay is not running. Press Start.";
   $("#now").innerHTML=n;
   $("#providers").innerHTML=s.providers.map(p=>{
-    const l=p.live||{};const run=l.running;let u="";
-    if(p.usage&&p.usage.windows)u=p.usage.windows.map(w=>{const left=w.resetsAt?w.resetsAt-Date.now()/1000:null;
-      return `<div class="row"><span>${w.label}</span><span>${w.usedPercent}% used${left>0?" · resets in "+fmt(left):""}</span></div>${bar(w.usedPercent)}`}).join("")+`<div class="mute" style="font-size:11px">${esc(p.usage.source)}</div>`;
-    else if(p.note)u=`<div class="mute small">${esc(p.note)}</div>`;
-    const lim=p.lastLimit?`<div class="warnc">last limit hit ${p.lastLimit.ts}${p.lastLimit.until?" · reset about "+p.lastLimit.until:""}</div>`:"";
-    const fb=p.fallbackBuildsToday?`<div class="mute">${p.fallbackBuildsToday} backup build(s) today</div>`:"";
-    const acts=(run?(l.actions||[]):[]).slice(-3).map(a=>`<div class="act">› ${esc(a)}</div>`).join("");
-    return `<div class="card prov" style="--c:${p.color}"><h2>${esc(p.role)}</h2><div class="big"><span class="dot ${run?"on":""}"></span>${esc(p.name)}</div>
-      <div class="mute">${esc(p.model||"")}</div>
-      <div>${run?esc(l.state)+" · "+fmt(Date.now()/1000-off-l.start)+(l.tokens?" · "+(typeof l.tokens==="number"?(l.tokens>=1000?(l.tokens/1000).toFixed(1)+"k":l.tokens):l.tokens)+" tokens":""):'<span class="mute">idle</span>'}</div>
-      ${acts}${u}${lim}${fb}</div>`}).join("");
+    const l=p.live||{},run=l.running,w=(p.usage&&p.usage.windows)||[];
+    const urows=w.map(x=>{const left=x.resetsAt?x.resetsAt-Date.now()/1000:null;return `<div class="urow" title="${esc(x.label)}${left>0?" · resets in "+fmt(left):""}"><span>${esc(x.label)}</span>${bar(x.usedPercent)}<b>${Math.round(x.usedPercent)}%</b></div>`}).join("");
+    const reset=w.length?(()=>{const x=w.reduce((m,y)=>(y.resetsAt&&(!m||y.resetsAt<m.resetsAt))?y:m,null);const left=x&&x.resetsAt?x.resetsAt-Date.now()/1000:0;return left>0?`<div class="mute" style="font-size:11px">${esc(x.label)} resets in ${fmt(left)}</div>`:""})():"";
+    const lastAct=run?((l.actions||[]).slice(-1)[0]):"";
+    const lim=p.lastLimit?`<div class="warnc" style="font-size:12px">hit its limit ${p.lastLimit.ts}${p.lastLimit.until?", back about "+p.lastLimit.until:""}</div>`:"";
+    const fb=p.fallbackBuildsToday?`<div class="mute" style="font-size:12px">${p.fallbackBuildsToday} backup build(s) today</div>`:"";
+    const model=(p.model||"").replace(/^opencode\//,"");
+    return `<div class="aic" style="--c:${p.color}" title="${esc(p.note||"")}"><div class="aih"><span class="dot ${run?"on":""}"></span>${esc(p.name)}</div>
+      <div class="mute small">${esc(p.role)}${model?" · "+esc(model):""}</div>
+      <div class="small" style="margin-top:3px">${run?esc(l.state)+" · "+fmt(Date.now()/1000-off-l.start):'<span class="mute">idle</span>'}</div>
+      ${lastAct?`<div class="act">› ${esc(lastAct)}</div>`:""}${urows}${reset}${lim}${fb}</div>`}).join("");
   $("#done").innerHTML=s.done.slice().reverse().map(d=>`<li><span class="ok">✓</span> ${d.ts} ${esc(d.msg)}</li>`).join("")||'<li class="mute">nothing yet</li>';
   $("#broke").innerHTML=s.broke.slice().reverse().map(d=>`<li><span class="bad">✗</span> ${d.ts} ${esc(d.msg)}</li>`).join("")||'<li class="ok">nothing broke this run</li>';
   $("#next").innerHTML=(s.next||[]).map(x=>`<li>→ ${esc(x.label)} <span class="mute">(in about ${fmt(x.inSeconds)})</span></li>`).join("")||'<li class="mute">–</li>';
-  $("#queue").textContent=s.ownerQueue.length?`${s.ownerQueue.length} tasks: ${s.ownerQueue.join(" ")}`:"nothing waiting";
-  $("#digestlink").innerHTML=s.digest?'<a href="/digest" target="_blank">Open the review page (what to try and judge)</a>':"";
+  $("#queue").textContent=s.ownerQueue.length?s.ownerQueue.slice(0,12).join(" ")+(s.ownerQueue.length>12?" …":""):"";
+  /* the review page link lives in the Needs you card */
   $("#idle").innerHTML=s.idleChores.map(t=>`<li>${esc(t)}</li>`).join("")||'<li class="mute">none run yet (they run while every AI is out of usage)</li>'}
 async function tick(){if(MODE!=="dash")return;try{const st=await get("/api/state");WZ=await get("/api/wizard");render(st);renderNextTasks(st);headerButtons()}catch(e){$("#status").textContent="NO DATA";$("#status").className="pill stop"}}
 

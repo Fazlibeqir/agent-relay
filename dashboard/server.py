@@ -436,8 +436,19 @@ def wizard_state(relay):
     return {"project": proj, "githost": appapi.githost_status()}
 
 
+ASSETS = HERE / "assets" if (HERE / "assets").exists() else HERE.parent / "assets"
+ASSET_OK = re.compile(r"^(agent-relay[A-Za-z0-9._-]*|flux-logo\.(png|svg))$")
+EXTERNAL_OK = ("https://flux.mk", "https://www.flux.mk")      # the only addresses the page may ask the app to open in the normal browser
+
+
+def flux_logo():
+    for ext in ("svg", "png"):
+        if (ASSETS / ("flux-logo." + ext)).is_file(): return "/assets/flux-logo." + ext
+    return ""
+
+
 class Handler(BaseHTTPRequestHandler):
-    relay = None; providers = []
+    relay = None; providers = []; on_quit = None
 
     def log_message(self, *a): pass
 
@@ -468,7 +479,11 @@ class Handler(BaseHTTPRequestHandler):
             return False
         try:
             if path == "/api/quit":
-                reply({"ok": True}); threading.Thread(target=Handler.srv.shutdown, daemon=True).start(); return
+                reply({"ok": True}); threading.Thread(target=(Handler.on_quit or Handler.srv.shutdown), daemon=True).start(); return
+            if path == "/api/open-external":
+                url = str(body.get("url", ""))
+                if url.rstrip("/") not in EXTERNAL_OK: return reply({"ok": False, "error": "not allowed"}, 400)
+                import webbrowser; webbrowser.open(url); return reply({"ok": True})
             if path == "/api/pick-folder": return reply(appapi.pick_folder(body.get("title", "Choose a folder")))
             if path == "/api/pick-file": return reply(osops.pick_file(body.get("title", "Choose your task list")))
             if path == "/api/project/inspect": return reply(existing.inspect(body.get("path", "")))
@@ -569,6 +584,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/api/models": return reply(with_custom(model_catalog(), self.relay))
             if p.startswith("/api/plan/status"): return reply(planner.job_status(p.split("job=")[-1] if "job=" in p else ""))
+            if p == "/api/brand": return reply({"fluxLogo": flux_logo(), "credit": "Driven by Flux", "url": "https://flux.mk"})
+            if p.startswith("/assets/"):
+                name = p[len("/assets/"):].split("?")[0]
+                f = ASSETS / name
+                if ASSET_OK.match(name) and f.is_file():
+                    ctype = "image/svg+xml" if name.endswith(".svg") else "image/png" if name.endswith(".png") else "image/x-icon" if name.endswith(".ico") else "application/octet-stream"
+                    return self._send(200, f.read_bytes(), ctype)
+                return self._send(404, "not found", "text/plain")
             if p == "/api/env": return reply(appapi.environment())
             if p == "/api/requests": return reply({"requests": appapi.list_requests(self.relay) if self.relay else []})
             if p == "/api/docs":
@@ -619,16 +642,22 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
 
-def main():
+def setup(argv=None):
+    """Parse the options and bind the server (not serving yet). Returns (server, options)."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--relay", default=""); ap.add_argument("--open", action="store_true", help="open the page in the browser"); ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 only on a network you trust: there is no login")
     ap.add_argument("--providers", default=str(HERE / "providers.json"))
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     proj = a.relay or appapi.load_config().get("project", "")
     Handler.relay = pathlib.Path(proj).resolve() if proj and pathlib.Path(proj).is_dir() else None
     Handler.providers = json.loads(pathlib.Path(a.providers).read_text(encoding="utf-8"))["providers"]
     srv = ThreadingHTTPServer((a.host, a.port), Handler); Handler.srv = srv
+    return srv, a
+
+
+def main():
+    srv, a = setup()
     print(f"Agent relay dashboard for {Handler.relay}\n  http://{a.host}:{a.port}/   (Ctrl+C to stop)")
     if a.open and not os.environ.get("AGENT_RELAY_NO_BROWSER"):
         import webbrowser; webbrowser.open(f"http://{a.host}:{a.port}/")

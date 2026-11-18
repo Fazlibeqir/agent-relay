@@ -57,18 +57,21 @@ This is a safety net, not a sandbox: the AIs run with your permissions and could
 
 ## Download
 
-Ready-made builds for Windows and Linux are on the [Releases page](../../releases): `AgentRelay-windows-x64.exe` (double-click it) and `AgentRelay-linux-x86_64.tar.gz`
-(`tar -xzf` it and run `./AgentRelay`). They are built by a GitHub Actions workflow (`.github/workflows/release.yml`) that starts each build to check it comes up before publishing.
-To make a release, push a tag such as `v0.1.0`.
+Ready-made builds for Windows and Linux are on the [Releases page](../../releases). Agent Relay is a desktop app with its own window and a loading screen.
+
+- **Windows 10/11:** `AgentRelay-windows-x64.zip`. Extract it and double-click `AgentRelay.exe` (the window uses WebView2, which is part of Windows).
+- **Linux (x86_64):** `AgentRelay-linux-x86_64.tar.gz`. Extract it and run `./AgentRelay/AgentRelay`; it needs libnss3, libxkbcommon-x11-0, libxcb-cursor0, libasound2 and libgl1.
+
+They are built by a GitHub Actions workflow (`.github/workflows/release.yml`) that starts each build to check it comes up before publishing. To make a release, push a tag such as `v0.2.0`.
 
 ## Run it
 
 | | Windows | Linux |
 |---|---|---|
 | From source (needs Python 3) | `Run AgentRelay.cmd` | `./run-app.sh` |
-| Packaged single file | `build-app.ps1` makes `dist\AgentRelay.exe` | `./build-app.sh` makes `dist/AgentRelay` (run it on a Linux machine) |
+| Packaged app | `build-app.ps1` makes `dist\AgentRelay\AgentRelay.exe` and a zip | `./build-app.sh` makes `dist/AgentRelay/` (run it on a Linux machine) |
 
-The app opens in your browser at `http://127.0.0.1:8765/` (it picks another port if that one is busy). **Quit app** closes the app only; a running relay keeps running.
+The app opens in its own window (the engine behind it listens on `http://127.0.0.1:8765/` on this computer only). If the window library is missing it falls back to your browser. **Quit app** closes the app only; a running relay keeps running.
 
 **Status of platforms.** Windows is built and tested. The Linux code paths (terminals, package installs, drives, processes, starting the relay) are written to the same shape
 but have not been run on a Linux machine yet: expect small fixes on first use. macOS is not supported.
@@ -81,11 +84,12 @@ change a file you already have (setup never overwrites); accept commands from an
 ## Layout
 
 ```
-agent_relay_app.py   starts the local server and opens the page
+agent_relay_app.py   starts the local engine and shows the interface in a native window with a splash screen
 dashboard/           server.py (API), index.html (the whole UI), appapi.py (actions), osops.py (Windows/Linux differences),
                      planner.py (idea -> proposal -> plan), customai.py (add other AIs), providers.json (the cards)
 template/            what gets copied into every new project: relay-files.sh (the loop), relay-lib.sh, relay-pick.py (task picker),
                      relay-settings.py (roles and models), relay-idle.sh, relay-digest.py, relay-awake.ps1 (Windows launcher)
+assets/              the logo, icons and splash (tools/make_icons.py draws them), and the Flux credit logo
 relay.settings.example.json   the default roles for a new project
 ```
 

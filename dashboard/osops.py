@@ -210,7 +210,13 @@ def start_background(project, script):
     subprocess.Popen(inner, cwd=str(proj), stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
 
 
+DIALOGS = {}      # set by the app window: {"folder": fn(title), "file": fn(title)} using the window's own native dialogs
+
+
 def pick_file(title="Choose a file"):
+    if DIALOGS.get("file"):
+        try: return {"ok": True, "path": DIALOGS["file"](title) or ""}
+        except Exception as ex: return {"ok": False, "error": "The file picker failed (" + str(ex)[:80] + "). Type the path instead."}
     try:
         import tkinter
         from tkinter import filedialog
@@ -223,6 +229,9 @@ def pick_file(title="Choose a file"):
 
 
 def pick_folder(title="Choose a folder"):
+    if DIALOGS.get("folder"):
+        try: return {"ok": True, "path": DIALOGS["folder"](title) or ""}
+        except Exception as ex: return {"ok": False, "error": "The folder picker failed (" + str(ex)[:80] + "). Type the path instead."}
     try:
         import tkinter
         from tkinter import filedialog
