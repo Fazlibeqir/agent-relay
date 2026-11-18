@@ -7,7 +7,7 @@ It reads relay.log (phase, task, rounds, limits), relay-live-<label>.log/.start 
 relay-fallback-<tool>.count (fallback builds today), PLAYTEST_QUEUE.md (what waits for the owner), and each provider's own
 usage source when it has one (Codex writes its rate limits into its session logs).
 """
-import customai, osops, planner, subprocess, threading, argparse, importlib.util, json, os, pathlib, re, statistics, tempfile, time, glob, datetime
+import customai, existing, osops, planner, subprocess, threading, argparse, importlib.util, json, os, pathlib, re, statistics, tempfile, time, glob, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = pathlib.Path(__file__).parent
@@ -272,6 +272,7 @@ def build_state(relay, providers):
     t = tail_bytes(relay / "relay-tests.log", 200_000)
     checks = re.findall(r"^\[checks\] (.+)$", t, re.M)
     state["testCheck"] = {"count": len(checks), "label": checks[-1] if checks else ""}
+    state["requests"] = appapi.list_requests(relay)[-14:]
     return state
 
 
@@ -429,7 +430,7 @@ def wizard_state(relay):
         except OSError: pass
         proj = {"path": str(r), "exists": True, "name": info.get("name") or r.name, "idea": info.get("idea", ""), "stack": info.get("stack", []),
                 "testCommand": info.get("testCommand", ""), "hasProposal": (r / "PROPOSAL.md").exists(), "hasPlan": bool(tasks) and (r / "AGENTS.md").exists(),
-                "taskCount": len(tasks), "hasRelay": bool(appapi.relay_script(r)), "script": appapi.relay_script(r), "running": appapi.relay_running(r), "remote": remote,
+                "taskCount": len(tasks), "tasksReady": existing.formatted_tasks(r)[0], "hasSource": (r / existing.SOURCE_NAME).exists(), "hasRelay": bool(appapi.relay_script(r)), "script": appapi.relay_script(r), "running": appapi.relay_running(r), "remote": remote,
                 "requires": [s for s in (appapi.toolchain_status(x) for x in info.get("requires", []) if isinstance(x, str)) if s]}
     return {"project": proj, "githost": appapi.githost_status()}
 
@@ -468,6 +469,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/quit":
                 reply({"ok": True}); threading.Thread(target=Handler.srv.shutdown, daemon=True).start(); return
             if path == "/api/pick-folder": return reply(appapi.pick_folder(body.get("title", "Choose a folder")))
+            if path == "/api/pick-file": return reply(osops.pick_file(body.get("title", "Choose your task list")))
+            if path == "/api/project/inspect": return reply(existing.inspect(body.get("path", "")))
+            if path == "/api/requests/decide":
+                if need_project(): return
+                return reply(appapi.decide_request(Handler.relay, body.get("id", ""), body.get("decision", ""), body.get("note", "")))
+            if path == "/api/project/attach":
+                r = existing.attach(body.get("path", ""), bool(body.get("initGit")))
+                if r.get("ok"): Handler.relay = pathlib.Path(r["path"])
+                return reply(r, 200 if r.get("ok") or r.get("needsGit") else 400)
+            if path == "/api/project/import":
+                if need_project(): return
+                r = existing.import_source(Handler.relay, body.get("path", ""), body.get("text", ""))
+                return reply(r, 200 if r.get("ok") else 400)
             if path == "/api/mark-signed-in": return reply(appapi.mark_signed_in(body.get("id", ""), body.get("value", True)))
             if path == "/api/install-tool": return reply(appapi.install_tool(body.get("id", "")))
             if path == "/api/install-toolchain": return reply(appapi.install_toolchain(body.get("id", "")))
@@ -511,8 +525,11 @@ class Handler(BaseHTTPRequestHandler):
                 if need_project(): return
                 prov = body.get("provider", "claude")
                 found = next((x["found"] for x in appapi.detect_setup()["tools"] if x["id"] == prov), None)
+                det = existing.detect_project(Handler.relay) if body.get("existing") else {}
+                hint = "; ".join(x for x in ((("stack: " + ", ".join(det["stack"])) if det.get("stack") else ""), (("test command: " + det["testCommand"]) if det.get("testCommand") else "")) if x)
                 r = planner.start_job(body.get("phase", ""), str(Handler.relay), found, prov, body.get("model", ""), body.get("idea", ""), body.get("stack", ""),
-                                      bool(body.get("suggest", True)), body.get("notes", ""), body.get("effort", ""), available_ai_text(Handler.relay), self._reviewer_model())
+                                      bool(body.get("suggest", True)), body.get("notes", ""), body.get("effort", ""), available_ai_text(Handler.relay), self._reviewer_model(),
+                                      body.get("goal", ""), hint, bool(body.get("existing")), body.get("source", ""))
                 return reply(r, 200 if r.get("ok") else 400)
             if path == "/api/plan/commit":
                 if need_project(): return
@@ -539,6 +556,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/models": return reply(with_custom(model_catalog(), self.relay))
             if p.startswith("/api/plan/status"): return reply(planner.job_status(p.split("job=")[-1] if "job=" in p else ""))
             if p == "/api/env": return reply(appapi.environment())
+            if p == "/api/requests": return reply({"requests": appapi.list_requests(self.relay) if self.relay else []})
             if p == "/api/docs":
                 d = {"proposal": "", "plan": ""}
                 if self.relay:

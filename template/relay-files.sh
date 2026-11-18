@@ -40,7 +40,7 @@ if command -v cygpath >/dev/null; then
   CODEX_ARGS=(--sandbox workspace-write --add-dir "$GIT_COMMON"); [ "$GIT_OWN" = "$GIT_COMMON" ] || CODEX_ARGS+=(--add-dir "$GIT_OWN")
 fi
 
-for f in "$LOG" "$TEST_LOG" "$COMMIT_FILE" "$LOCK/"; do grep -qxF "$f" .gitignore 2>/dev/null || echo "$f" >> .gitignore; done
+for f in "$LOG" "$TEST_LOG" "$COMMIT_FILE" "$LOCK/" "relay-requests/"; do grep -qxF "$f" .gitignore 2>/dev/null || echo "$f" >> .gitignore; done
 if ! mkdir "$LOCK" 2>/dev/null; then echo "Another relay is already running here (or a crashed one left $LOCK - remove it if no relay is running)."; exit 1; fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 trap 'exit 130' INT TERM
@@ -70,14 +70,80 @@ apply_builder_commit() {  # the builder writes $COMMIT_FILE (subject, body, 'FIL
   rm -f "$COMMIT_FILE"
   for f in "${files[@]}"; do
     case "$f" in
-      "$COMMIT_FILE"|.relay*|relay-*.log|relay-live-*|relay-fallback-*|relay-idle-*|"$LOG"|"$TEST_LOG"|"$TASK_FILE"|"$REVIEW_FILE"|"$QUEUE_FILE"|tasks/*|.git/*|/*|[A-Za-z]:*|*..*)
+      "$COMMIT_FILE"|.relay*|relay-*.log|relay-live-*|relay-fallback-*|relay-idle-*|relay-requests/*|"$LOG"|"$TEST_LOG"|"$TASK_FILE"|"$REVIEW_FILE"|"$QUEUE_FILE"|tasks/*|.git/*|/*|[A-Za-z]:*|*..*)
         log "refused to commit '$f' (house rules)"; continue;;
     esac
     if [ -e "$f" ] || git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then ok+=("$f"); else log "the builder asked to commit '$f', which does not exist"; fi
   done
+  # files that may hold secrets are never committed on the AI's say-so: ask the person first
+  local held=() keep=() sf
+  mapfile -t held < <(printf '%s\n' "${ok[@]}" | python relay-pick.py sensitive | tr -d '\r')
+  if [ "${#held[@]}" -gt 0 ]; then
+    for f in "${ok[@]}"; do sf=0; for h in "${held[@]}"; do [ "$f" = "$h" ] && sf=1; done; [ "$sf" -eq 0 ] && keep+=("$f"); done
+    ok=("${keep[@]}")
+    REQ_MESSAGE="$msg" python relay-pick.py req new commit-sensitive "${task:-}" "Save these files in the project history" "The builder listed files that may contain passwords or keys. Once saved in git they are hard to remove." "${held[@]}" >/dev/null
+    log "held ${#held[@]} sensitive file(s) for your decision: ${held[*]}"
+  fi
   [ -n "$msg" ] && [ "${#ok[@]}" -gt 0 ] || { log "the builder's commit request had no message or no usable files"; return 0; }
   local ident=(); git config user.email >/dev/null 2>&1 || ident=(-c user.name="Agent Relay" -c user.email="agent-relay@localhost")
   git add -A -- "${ok[@]}" && git "${ident[@]}" commit -q -F - -- "${ok[@]}" <<<"$msg" && log "committed for the builder: $(git log -1 --format='%h %s') (${#ok[@]} files)"
+}
+
+judge_pending() {  # approvals.mode = auto: an AI judge answers each undecided request (approve, deny, or ask = leave it for the person)
+  [ "${S_APPROVALS_MODE:-ask}" = auto ] || return 0
+  local id typ _a prompt out v dec reason verb
+  while IFS='|' read -r id typ _a; do
+    [ -n "$id" ] || continue
+    if { [ "$typ" = commit-sensitive ] || [ "$typ" = push ]; } && [ "${S_APPROVALS_SECRETS:-0}" != 1 ]; then continue; fi   # secrets and uploads stay with the person
+    prompt=$(python relay-pick.py req judge-prompt "$id" | tr -d '\r')
+    if [ -n "${S_JUDGE_PROVIDER:-}" ]; then tool_run "$S_JUDGE_PROVIDER" "$prompt" "${S_JUDGE_MODEL:-auto}" "${S_JUDGE_EFFORT:-auto}"; out=$LAST_OUT
+    else claude_run reviewer "$prompt"; out=$LAST_OUT; fi
+    v=$(printf '%s' "$out" | python relay-pick.py req verdict | tr -d '\r')
+    dec=${v%%|*}; reason=${v#*|}
+    case "$dec" in
+      approve|deny) python relay-pick.py req decide "$id" "$dec" "AI judge" "$reason" >/dev/null; [ "$dec" = approve ] && verb=approved || verb=denied; log "AI judge $verb request $id ($typ): $reason";;
+      ask) log "AI judge left request $id for you: $reason";;
+      *) log "AI judge gave no usable answer for request $id: it stays for you";;
+    esac
+  done < <(python relay-pick.py req pending-list | tr -d '\r')
+}
+
+handle_requests() {  # handle_requests [wait]: with 'wait', pause (up to APPROVAL_WAIT s) while the person has undecided requests; then carry out what was decided
+  local pend waited=0 line id typ rc files msg res by
+  judge_pending
+  if [ "${1:-}" = wait ]; then
+    pend=$(python relay-pick.py req pending | tr -d '\r')
+    if [ "${pend:-0}" -gt 0 ]; then log "waiting for your decision on $pend request(s) — open the app and press Accept or Deny (up to ${APPROVAL_WAIT:-900}s)"; fi
+    while [ "${pend:-0}" -gt 0 ] && [ "$waited" -lt "${APPROVAL_WAIT:-900}" ]; do sleep 10; waited=$((waited + 10)); pend=$(python relay-pick.py req pending | tr -d '\r'); done
+    [ "${pend:-0}" -gt 0 ] && log "$pend request(s) still undecided: carrying on without them"
+  fi
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    id=$(python -c "import json,sys;print(json.loads(sys.argv[1])['id'])" "$line" | tr -d '\r')
+    typ=$(python -c "import json,sys;print(json.loads(sys.argv[1])['type'])" "$line" | tr -d '\r')
+    st=$(python -c "import json,sys;print(json.loads(sys.argv[1])['status'])" "$line" | tr -d '\r')
+    mapfile -t files < <(python -c "import json,sys;print(chr(10).join(json.loads(sys.argv[1]).get('files',[])))" "$line" | tr -d '\r')
+    msg=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('message') or 'Save approved files')" "$line" | tr -d '\r')
+    by=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('decidedBy') or 'you')" "$line" | tr -d '\r')
+    res=""
+    case "$typ:$st" in
+      commit-sensitive:approved)
+        git add -- "${files[@]}" 2>/dev/null && git commit -q -m "$msg" -- "${files[@]}" 2>/dev/null && res="committed ${files[*]}" || res="could not commit ${files[*]}"
+        log "approved by $by — $res";;
+      commit-sensitive:denied)
+        for f in "${files[@]}"; do grep -qxF "$f" .gitignore 2>/dev/null || echo "$f" >> .gitignore; done
+        git add -- .gitignore 2>/dev/null && git commit -q -m "relay: never commit the files you refused (${files[*]})" -- .gitignore 2>/dev/null
+        res="added to .gitignore: ${files[*]}"; log "denied by $by — $res";;
+      push:approved)
+        if git remote get-url origin >/dev/null 2>&1; then
+          res=$(git push origin "$BRANCH" 2>&1 | tail -n 3 | tr '\n' ' '); log "approved by $by — push of $BRANCH: $res"
+        else res="no online repository is connected (no 'origin')"; log "approved push could not run: $res"; fi;;
+      push:denied) res="not pushed"; log "denied by $by — push";;
+      *:approved) res="approved: the builder is told in its next prompt"; log "approved by $by — $typ";;
+      *:denied) res="denied: the builder is told in its next prompt"; log "denied by $by — $typ";;
+    esac
+    python relay-pick.py req done "$id" "$res" >/dev/null
+  done < <(python relay-pick.py req take | tr -d '\r')
 }
 
 HOUSE_RULES="PROJECT RULES:
@@ -87,7 +153,11 @@ HOUSE_RULES="PROJECT RULES:
 - Never weaken or delete a test to make it pass. Never claim a test passed that was not run.
 - New values you invent (limits, timings, names the person may care about) are PROPOSED: say so in your final message.
 - Never tick a gate whose text starts with HUMAN, and never edit anything under tasks/ or the loop files ($TASK_FILE, $REVIEW_FILE, $QUEUE_FILE): the reviewer owns them.
-- Stage nothing yourself: list your files in $COMMIT_FILE and the relay commits them."
+- Stage nothing yourself: list your files in $COMMIT_FILE and the relay commits them.
+- NEEDING PERMISSION: never read, print, copy or commit secrets (.env files, keys, tokens, passwords), never push or upload anything, never install programs system-wide,
+  never use paid services or send data to outside services. If a task truly needs one of these, do NOT do it: write a small JSON file relay-requests/<short-name>.json with the keys
+  type, action, why and details (type is other, or push to ask for an upload of the work branch; action says what you want to do, why says why the task needs it, details names the files,
+  commands or services involved), then carry on with everything else, or start your final message with BLOCKED. The person decides in the app; their decisions are listed at the end of your next prompt."
 
 BUILD_PROMPT="You are the implementer for this project. Follow AGENTS.md exactly.
 Read $TASK_FILE (the task and its gates) and, if it exists, $REVIEW_FILE. Fix every issue in $REVIEW_FILE first; otherwise work on the open AUTO gates.
@@ -158,9 +228,12 @@ while true; do
   before=$(git rev-parse HEAD)
   rm -f "$COMMIT_FILE"
   LAST_OUT=""
-  builder_run "$BUILD_PROMPT"
+  handle_requests          # decisions the person made since the last round (nothing to wait for here)
+  builder_run "$BUILD_PROMPT
+$(python relay-pick.py req prompt | tr -d '\r')"
   builder_said=$(tail -n 40 <<<"$LAST_OUT")
   apply_builder_commit
+  handle_requests wait     # anything the builder or the relay asked the person about: wait for Accept or Deny, then act on it
   after=$(git rev-parse HEAD)
   log "round $round — Codex made $(git rev-list --count "$before..$after") commit(s); running the full suite for the review"
 

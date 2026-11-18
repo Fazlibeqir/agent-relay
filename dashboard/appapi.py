@@ -13,7 +13,7 @@ NO_WINDOW = osops.NO_WINDOW
 APPDATA = (pathlib.Path(os.environ["APPDATA"]) if IS_WIN and os.environ.get("APPDATA") else pathlib.Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))) / "AgentRelay"
 RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-pick.py", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
 GITIGNORE = ("relay.log", "relay-tests.log", "relay-live-*.log", "relay-live-*.start", "relay-console.log", "relay-console.err", ".relay.lock/",
-             "relay.settings.json", "relay.providers.json", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
+             "relay.settings.json", "relay.providers.json", "relay-requests/", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
              "relay-idle-*.stamp", "relay-idle-*.log", "relay-commit.txt", "CURRENT_TASK.md", "REVIEW.md", "OWNER-REVIEW-DIGEST.md")
 KNOWN_PROVIDERS = ("claude", "codex", "copilot", "opencode")
 
@@ -385,3 +385,34 @@ def set_task_rec(project, task_id, provider, model, effort):
         lines[at:at] = ["", line]
     f.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- permission requests (the AI asks, the person decides)
+def list_requests(project):
+    """Requests in <project>/relay-requests/*.json, newest last. Written by the relay (sensitive files) or by an AI that needs something outside its rules."""
+    d = pathlib.Path(project) / "relay-requests"
+    out = []
+    if not d.is_dir(): return out
+    for f in sorted(d.glob("*.json")):
+        try: r = json.loads(f.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError): continue
+        if not isinstance(r, dict): continue
+        r["id"] = f.stem; r.setdefault("type", "other"); r.setdefault("status", "pending"); r.setdefault("files", []); r.setdefault("executed", False)
+        for k in ("action", "why", "details", "task", "note", "result", "decidedBy", "decidedAt"): r[k] = str(r.get(k, ""))[:500]
+        if not isinstance(r["files"], list): r["files"] = []
+        r["files"] = [str(x)[:200] for x in r["files"]][:30]
+        out.append(r)
+    return out
+
+
+def decide_request(project, rid, decision, note=""):
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", rid or "") or decision not in ("approve", "deny"): return {"ok": False, "error": "bad request"}
+    f = pathlib.Path(project) / "relay-requests" / (rid + ".json")
+    if not f.exists(): return {"ok": False, "error": "that request no longer exists"}
+    try: r = json.loads(f.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError): return {"ok": False, "error": "that request could not be read"}
+    if r.get("status", "pending") != "pending": return {"ok": False, "error": "that request was already decided"}
+    r["status"] = "approved" if decision == "approve" else "denied"
+    r["decidedAt"] = time.strftime("%Y-%m-%d %H:%M:%S"); r["note"] = (note or "")[:300]; r["executed"] = False; r["decidedBy"] = "you"
+    with open(f, "w", encoding="utf-8", newline="\n") as fh: json.dump(r, fh, indent=1)
+    return {"ok": True, "status": r["status"]}

@@ -49,6 +49,7 @@ pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8p
 </div>
 
 <div id="dash" hidden>
+  <div id="reqbox"></div>
   <div class="card"><h2>Now</h2><div id="now">loading…</div></div>
   <div class="grid" id="providers"></div>
   <div class="grid" style="margin-top:12px">
@@ -74,7 +75,7 @@ async function get(p){return (await fetch(p)).json()}
 async function post(p,b){const r=await fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})});return r.json()}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-let MODE="setup",STEP=1,SETUP=null,ENV=null,WZ=null,CAT=null,SET=null,FAST=0,JOB=null,FORM={name:"",idea:"",stack:"",root:"",host:"local",remote:false,prov:"",model:"",effort:""};
+let MODE="setup",STEP=1,SETUP=null,ENV=null,WZ=null,CAT=null,SET=null,FAST=0,JOB=null,FORM={name:"",idea:"",stack:"",root:"",host:"local",remote:false,prov:"",model:"",effort:"",mode:"new",existPath:"",existInfo:null,taskMode:"none",taskPath:"",taskText:"",goal:"",initGit:false};
 let off=0;
 
 /* ------------------------------------------------------------ dropdown helpers */
@@ -177,10 +178,16 @@ function suggestName(idea){return cleanName(idea.split(/\s+/).slice(0,3).join(" 
 function joinPath(base,name){const sep=ENV.os==="windows"?"\\":"/";return base.replace(/[\\/]+$/,"")+sep+name}
 function projectsRoot(d){return joinPath(d.path,"Projects")}
 function stepProject(){
+  $("#step").innerHTML=`<div class="card"><h3>2. Your project</h3>
+    <div class="row2" style="margin-top:6px"><label class="opt"><input type="radio" name="pm" value="new" ${FORM.mode==="new"?"checked":""}><div><b>Start something new</b><div class="mute small">Tell the AI your idea. It plans the project and builds it.</div></div></label>
+    <label class="opt"><input type="radio" name="pm" value="existing" ${FORM.mode==="existing"?"checked":""}><div><b>I already have a project</b><div class="mute small">Pick its folder. Give the AI your task list, or let it read the project and write the tasks.</div></div></label></div></div><div id="pbody"></div>`;
+  document.querySelectorAll("[name=pm]").forEach(r=>r.onchange=()=>{FORM.mode=r.value;stepProject()});
+  if(FORM.mode==="existing")stepExisting();else stepProjectNew()}
+function stepProjectNew(){
   const ds=ENV.drives;if(!FORM.root){const rec=ds.find(d=>d.path===ENV.recommended)||ds[0];FORM.root=rec?projectsRoot(rec):""}
   const stacks=["","Website: Next.js + TypeScript","Website: Python + Flask","Website: plain HTML, CSS and JavaScript","Mobile app: React Native (Expo)","Desktop app: Electron + TypeScript","Game: Godot 4 (GDScript)","Game: Unity (C#)","Game in the browser: Phaser + TypeScript","Command-line tool: Python","Command-line tool: Node.js","Backend API: Java + Spring Boot","Backend API: Python + FastAPI","Data / automation scripts: Python"];
   const u=usableAIs();if(!FORM.prov){const c=u.find(t=>t.id==="claude")||u.find(t=>t.id==="codex")||u[0];FORM.prov=c?c.id:""}
-  $("#step").innerHTML=`<div class="card"><h3>2. Your project</h3>
+  $("#pbody").innerHTML=`<div class="card">
    <label class="l">What do you want to build?</label>
    <textarea id="f_idea" placeholder="For example: a small website where my football club can post results and show a league table.">${esc(FORM.idea)}</textarea>
    <label class="l">Name</label><input id="f_name" size="30" placeholder="Short name for the project" value="${esc(FORM.name)}">
@@ -205,6 +212,66 @@ function stepProject(){
   $("#f_stack_o").oninput=e=>{FORM.stackOther=e.target.value};
   $("#f_prov").onchange=e=>{FORM.prov=e.target.value;FORM.model="";FORM.effort="";fillPlannerModels()};
   $("#back2").onclick=()=>go(1);$("#go2").onclick=createAndPropose;pathPreview()}
+function plannerPickerHtml(){const u=usableAIs();if(!FORM.prov){const c=u.find(t=>t.id==="claude")||u.find(t=>t.id==="codex")||u[0];FORM.prov=c?c.id:""}
+  return `<label class="l">Which AI reads the project and writes the tasks?</label><div class="row2"><select id="f_prov">${u.map(t=>`<option value="${t.id}" ${t.id===FORM.prov?"selected":""}>${esc(t.name)}</option>`).join("")||"<option value=''>no AI is ready: go back to step 1</option>"}</select><select id="f_model"></select><select id="f_effort"></select>
+    <span class="mute small">It reads your files and writes plan documents only. Anything it changes outside those is put back.</span></div>`}
+async function stepExisting(){
+  const i=FORM.existInfo;
+  $("#pbody").innerHTML=`<div class="card">
+    <label class="l">Your project folder</label>
+    <div class="row2"><input id="x_path" size="46" placeholder="Paste the folder path, or click Browse" value="${esc(FORM.existPath)}"><button id="x_browse">Browse…</button><button id="x_check">Check this folder</button></div>
+    <div id="x_info" style="margin-top:8px"></div>
+    <div id="x_rest"></div></div>`;
+  $("#x_browse").onclick=async()=>{const r=await post("/api/pick-folder",{title:"Choose your project folder"});if(r.ok&&r.path){FORM.existPath=r.path;$("#x_path").value=r.path;inspectFolder()}};
+  $("#x_check").onclick=()=>{FORM.existPath=$("#x_path").value.trim();inspectFolder()};
+  $("#x_path").onchange=()=>{FORM.existPath=$("#x_path").value.trim()};
+  if(i)drawExistRest()}
+async function inspectFolder(){
+  const r=await post("/api/project/inspect",{path:FORM.existPath});
+  if(!r.ok){$("#x_info").innerHTML='<span class="bad">'+esc(r.error)+"</span>";FORM.existInfo=null;$("#x_rest").innerHTML="";return}
+  FORM.existInfo=r;FORM.existPath=r.path;$("#x_path").value=r.path;if(r.tasksReady&&FORM.taskMode==="none")FORM.taskMode="ready";drawExistRest()}
+function drawExistRest(){
+  const i=FORM.existInfo;if(!i)return;const d=i.detect||{};
+  $("#x_info").innerHTML=`<div><b>${esc(i.name)}</b> <span class="mute small">${esc(i.path)}</span></div>
+    <div class="small">${d.stack&&d.stack.length?"Looks like: <b>"+esc(d.stack.join(", "))+"</b>":'<span class="mute">Could not tell what it is built with; the AI will find out.</span>'}${d.testCommand?` · tests run with <code>${esc(d.testCommand)}</code>`:' · <span class="warnc">no test command found</span>'}</div>
+    <div class="small">${i.isGit?`git project on branch <b>${esc(i.branch)}</b>${i.dirtyCount?` · <span class="warnc">${i.dirtyCount} file(s) with unsaved changes (they are left alone)</span>`:""}`:'<span class="warnc">Not a git project yet.</span>'}</div>`;
+  const gitBox=i.isGit?"":`<label class="opt"><input type="checkbox" id="x_init" ${FORM.initGit?"checked":""}><div>Make it a git project. <span class="mute small">The app runs git init and saves your current files as a starting point (check that no secrets are in the folder first).</span></div></label>`;
+  $("#x_rest").innerHTML=`${gitBox}
+    <div class="mute small" style="margin:8px 0">${i.isGit?`The relay works on its own branch called <b>agent-run</b>${i.needsBranch?" (the app creates it; your "+esc(i.branch)+" branch is not touched)":""}. It adds its scripts to your project on that branch.`:""}</div>
+    <label class="l">Your tasks</label>
+    ${i.tasksReady?`<label class="opt"><input type="radio" name="tm" value="ready" ${FORM.taskMode==="ready"?"checked":""}><div><b>The tasks are already here (${i.taskFiles} files in tasks/)</b><div class="mute small">They are already in the right format. The AI only suggests which model should build each one.</div></div></label>`:""}
+    <label class="opt"><input type="radio" name="tm" value="have" ${FORM.taskMode==="have"?"checked":""}><div><b>I have a task list</b><div class="mute small">A file or text with what needs doing, in your own words and format. The AI turns it into proper tasks.</div></div></label>
+    <div id="x_have" ${FORM.taskMode==="have"?"":"hidden"} style="margin:0 0 8px 26px"><div class="row2"><input id="x_tfile" size="40" placeholder="Task list file (md, txt, csv, json…)" value="${esc(FORM.taskPath)}"><button id="x_tbrowse">Choose a file…</button></div>
+      <div class="mute small" style="margin:4px 0">or paste it here:</div><textarea id="x_ttext" placeholder="- add a login page&#10;- fix the checkout total&#10;- ...">${esc(FORM.taskText)}</textarea></div>
+    <label class="opt"><input type="radio" name="tm" value="none" ${FORM.taskMode==="none"?"checked":""}><div><b>I don't have tasks yet</b><div class="mute small">Tell the AI what you want. It reads the project and proposes the tasks, and you approve them.</div></div></label>
+    <div id="x_none" ${FORM.taskMode==="none"?"":"hidden"} style="margin:0 0 8px 26px"><textarea id="x_goal" placeholder="For example: add a way to remove items from the cart, discount codes, and a page that shows the cart.">${esc(FORM.goal)}</textarea></div>
+    ${plannerPickerHtml()}
+    <div id="s2msg" style="margin-top:10px"></div>
+    <div class="nav"><button id="back2">Back</button><button id="go2" class="pri">Set up this project</button></div>`;
+  document.querySelectorAll("[name=tm]").forEach(r=>r.onchange=()=>{FORM.taskMode=r.value;$("#x_have").hidden=FORM.taskMode!=="have";$("#x_none").hidden=FORM.taskMode!=="none"});
+  const xi=$("#x_init");if(xi)xi.onchange=()=>{FORM.initGit=xi.checked};
+  $("#x_tbrowse").onclick=async()=>{const r=await post("/api/pick-file",{title:"Choose your task list"});if(r.ok&&r.path){FORM.taskPath=r.path;$("#x_tfile").value=r.path}};
+  $("#x_tfile").oninput=e=>{FORM.taskPath=e.target.value};$("#x_ttext").oninput=e=>{FORM.taskText=e.target.value};$("#x_goal").oninput=e=>{FORM.goal=e.target.value};
+  $("#f_prov").onchange=e=>{FORM.prov=e.target.value;FORM.model="";FORM.effort="";fillPlannerModels()};fillPlannerModels();
+  $("#back2").onclick=()=>go(1);$("#go2").onclick=attachAndPlan}
+async function attachAndPlan(){
+  const msg=t=>$("#s2msg").innerHTML=t,i=FORM.existInfo;
+  if(!FORM.prov)return msg('<span class="bad">No AI is ready. Go back to step 1.</span>');
+  if(FORM.taskMode==="have"&&!FORM.taskPath.trim()&&!FORM.taskText.trim())return msg('<span class="bad">Choose your task list file or paste it.</span>');
+  if(FORM.taskMode==="none"&&!FORM.goal.trim())return msg('<span class="bad">Say what you want done on the project.</span>');
+  if(!i.isGit&&!FORM.initGit)return msg('<span class="bad">Tick "Make it a git project" so the relay can keep its work separate.</span>');
+  if(!confirm("Set up "+i.name+"?"+NL+NL+(i.needsBranch?"The app will switch the project to a new branch called agent-run (your "+i.branch+" branch is not touched), and add the relay scripts there."+NL:"The app will add the relay scripts to the current branch."+NL)+"Your own files are not changed."))return;
+  $("#go2").disabled=true;msg('<span class="warnc">Setting up…</span>');
+  const a=await post("/api/project/attach",{path:FORM.existPath,initGit:FORM.initGit});
+  if(!a.ok){msg('<span class="bad">'+esc(a.error)+"</span>");$("#go2").disabled=false;return}
+  const base={provider:FORM.prov,model:FORM.model,effort:FORM.effort,existing:true};let j;
+  if(FORM.taskMode==="ready"){j=await post("/api/plan/start",{...base,phase:"recommend"})}
+  else if(FORM.taskMode==="have"){const s=await post("/api/project/import",{path:FORM.taskPath.trim(),text:FORM.taskPath.trim()?"":FORM.taskText});
+    if(!s.ok){msg('<span class="bad">'+esc(s.error)+"</span>");$("#go2").disabled=false;return}
+    j=await post("/api/plan/start",{...base,phase:"import",source:s.source,notes:FORM.goal})}
+  else{j=await post("/api/plan/start",{...base,phase:"analyze",goal:FORM.goal})}
+  if(!j.ok){msg('<span class="bad">'+esc(j.error)+"</span>");$("#go2").disabled=false;return}
+  JOB={id:j.job,phase:j.phase||(FORM.taskMode==="ready"?"recommend":FORM.taskMode==="have"?"import":"analyze")};WZ=await get("/api/wizard");go(3)}
 function drawDrives(){
   $("#drives").innerHTML=ENV.drives.map(d=>{const root=projectsRoot(d),sel=FORM.root===root;
     const low=d.freeGb<5||d.usedPct>90;
@@ -254,10 +321,10 @@ async function stepPlan(){
 function watchJob(){
   $("#step").innerHTML=`<div class="card"><h3>3. The plan</h3><div id="jobmsg" class="warnc">The AI is working…</div><div id="joblog"></div></div>`;
   const t=async()=>{const s=await get("/api/plan/status?job="+JOB.id);
-    if(s.state==="running"){$("#jobmsg").textContent="The AI is writing the "+(JOB.phase==="propose"?"proposal":"plan")+"… "+fmt(s.elapsed)+" (usually 1 to 4 minutes)";return}
+    if(s.state==="running"){$("#jobmsg").textContent="The AI is writing the "+(JOB.phase==="propose"||JOB.phase==="analyze"?"proposal":"plan")+"… "+fmt(s.elapsed)+" (usually 1 to 4 minutes)";return}
     clearInterval(P3);
     if(s.state!=="done"){$("#jobmsg").innerHTML='<span class="bad">It did not finish: missing '+esc((s.missing||[]).join(", "))+".</span>";$("#joblog").innerHTML='<pre class="doc">'+esc(s.log||"")+'</pre><div class="nav"><button onclick="go(2)">Back</button><button class="pri" onclick="stepPlan()">Try again</button></div>';return}
-    if(JOB.phase==="propose"){drawProposal()}else{await post("/api/plan/commit");drawPlanDone()}};
+    if(JOB.phase==="propose"||JOB.phase==="analyze"){drawProposal()}else{await post("/api/plan/commit");drawPlanDone()}};
   clearInterval(P3);t();P3=setInterval(t,3000)}
 async function drawProposal(){
   const d=await get("/api/docs");
@@ -266,7 +333,7 @@ async function drawProposal(){
     <label class="l">Anything to change? <span class="mute small" style="font-weight:400">(optional, in your own words)</span></label>
     <textarea id="notes" placeholder="For example: use a different tool, skip milestone 3, answer one of the questions."></textarea>
     <div class="nav"><button onclick="go(2)">Back</button><button class="pri" id="approve">Approve and make the plan</button></div></div>`;
-  $("#approve").onclick=async()=>{$("#approve").disabled=true;const j=await post("/api/plan/start",{phase:"plan",notes:$("#notes").value,provider:FORM.prov||"claude",model:FORM.model,effort:FORM.effort});
+  $("#approve").onclick=async()=>{$("#approve").disabled=true;const j=await post("/api/plan/start",{phase:"plan",notes:$("#notes").value,provider:FORM.prov||"claude",model:FORM.model,effort:FORM.effort,existing:FORM.mode==="existing"});
     if(!j.ok){alert(j.error);$("#approve").disabled=false;return}JOB={id:j.job,phase:"plan"};watchJob()}}
 async function drawPlanDone(){
   WZ=await get("/api/wizard");const p=WZ.project,d=await get("/api/docs");
@@ -322,8 +389,25 @@ function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart]
 function dashInit(){tick();drawDashTools();loadSettings();taskTable("#dashtasks")}
 async function drawDashTools(){SETUP=await get("/api/setup");$("#dashtools").innerHTML=SETUP.tools.map(toolRow).join("");wireToolButtons($("#dashtools"));
   if(!$("#ca_name")){$("#customarea").innerHTML='<details style="margin-top:8px"><summary><b>Add another AI</b></summary><div id="customarea2"></div></details>';renderCustom("#customarea2")}}
+const REQ_TEXT={
+  "commit-sensitive":r=>({title:"The AI wants to save secret-looking files in your project's history",risk:"These files may contain passwords, keys or tokens. Once saved in git they are hard to remove and travel with the project if you ever upload it.",yes:"Accept: save them",no:"Deny: never save them (they are added to .gitignore)"}),
+  "push":r=>({title:"The AI wants to upload (push) your work to your online repository",risk:"This sends the work branch to the online copy. It never touches main and is never forced.",yes:"Accept: push it",no:"Deny: keep it on this computer"}),
+  "other":r=>({title:"The AI is asking for permission",risk:"It stopped instead of doing this on its own. If you accept, it is told it may; if you deny, it is told to find another way.",yes:"Accept",no:"Deny"})};
+function renderRequests(list){
+  const pend=list.filter(r=>r.status==="pending");document.title=(pend.length?"("+pend.length+") ":"")+"Agent Relay";
+  const done=list.filter(r=>r.status!=="pending").slice(-5).reverse();
+  const doneHtml=done.length?`<div class="card"><h2>Recent permission decisions</h2>${done.map(r=>`<div class="small" style="padding:2px 0">${r.status==="approved"?'<span class="ok">✓ approved</span>':'<span class="bad">✗ denied</span>'} by <b>${esc(r.decidedBy||"you")}</b>: ${esc(r.action||r.type)}${r.files&&r.files.length?" ("+esc(r.files.slice(0,3).join(", "))+")":""}${r.note?` <span class="mute">— ${esc(r.note)}</span>`:""}</div>`).join("")}</div>`:"";
+  if(!pend.length){$("#reqbox").innerHTML=doneHtml;return}
+  $("#reqbox").innerHTML=pend.map(r=>{const t=(REQ_TEXT[r.type]||REQ_TEXT.other)(r);
+    return `<div class="card" style="border-color:var(--warn);border-width:2px"><h2 style="color:var(--warn)">Needs your decision</h2><div class="big" style="font-size:16px">${esc(t.title)}</div>
+      ${r.action?`<div style="margin-top:4px"><b>${esc(r.action)}</b>${r.why?" — "+esc(r.why):""}</div>`:""}${r.details?`<div class="small mute">${esc(r.details)}</div>`:""}
+      ${r.files&&r.files.length?`<div style="margin-top:4px">${r.files.map(f=>`<code>${esc(f)}</code>`).join(" ")}</div>`:""}
+      <div class="small warnc" style="margin-top:6px">${esc(t.risk)}</div>${r.task?`<div class="small mute">while working on ${esc(r.task)}</div>`:""}
+      <div class="row2" style="margin-top:8px"><input data-note="${esc(r.id)}" size="34" placeholder="Note for the AI (optional)"><button class="go" data-dec="approve" data-id="${esc(r.id)}">${esc(t.yes)}</button><button data-dec="deny" data-id="${esc(r.id)}">${esc(t.no)}</button></div></div>`}).join("")+doneHtml;
+  document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=async()=>{const id=b.dataset.id,n=document.querySelector('[data-note="'+id+'"]');
+    const r=await post("/api/requests/decide",{id,decision:b.dataset.dec,note:n?n.value:""});if(!r.ok)alert(r.error);tick()})}
 function render(s){
-  off=Date.now()/1000-s.now;
+  off=Date.now()/1000-s.now;renderRequests(s.requests||[]);
   if(s.noProject){$("#status").textContent="NO PROJECT";$("#status").className="pill stop";return}
   const ph=s.phase;
   $("#status").textContent=!s.alive?"STOPPED":ph&&ph.kind==="LIMIT"?"WAITING":"RUNNING";
@@ -362,7 +446,7 @@ async function tick(){if(MODE!=="dash")return;try{render(await get("/api/state")
 const ROLES=[["dispatcher","Dispatcher (picks tasks)"],["builder","Builder"],["reviewer","Reviewer"],["cleaner","Cleaner (optional)"]];
 function fillRole(r,keepModel,keepEffort){
   const prov=$("#p_"+r).value,ms=$("#m_"+r),es=$("#e_"+r),isBuilder=r==="builder";
-  if(prov==="none"){ms.innerHTML="<option>–</option>";es.innerHTML="<option>–</option>";ms.disabled=es.disabled=true;return}
+  if(prov==="none"||prov==="reviewer"){ms.innerHTML="<option>–</option>";es.innerHTML="<option>–</option>";ms.disabled=es.disabled=true;return}
   ms.disabled=false;es.disabled=false;
   const autoM=isBuilder?'<option value="auto">auto (follow each task)</option>':"";
   ms.innerHTML=selOpts((CAT[prov]||{models:[]}).models,keepModel,autoM);if(keepModel==="auto"&&autoM)ms.value="auto";
@@ -378,7 +462,12 @@ async function loadSettings(){
     return `<div class="srow"><b>${l}</b><select id="p_${r}">${optList(["none",...s.providers],v.provider||"none")}</select><select id="m_${r}"></select><select id="e_${r}"></select></div>`}).join("")
   +`<div class="srow"><b>Backups</b><span style="grid-column:2/-1">${["copilot","opencode","codex"].map(f=>`<label style="margin-right:12px"><input type="checkbox" id="fb_${f}" ${e.fallbackBuilders.includes(f)?"checked":""}> ${f}</label>`).join("")} · max builds per day <select id="fbmax">${N.map(n=>`<option ${n===e.fallbackMaxPerDay?"selected":""}>${n}</option>`).join("")}${N.includes(e.fallbackMaxPerDay)?"":`<option selected>${e.fallbackMaxPerDay}</option>`}</select></span></div>
    <div class="srow"><b>Backup models</b><span style="grid-column:2/-1">Copilot <select id="fm_copilot">${selOpts(CAT.copilot.models,fm.copilot)}</select> · OpenCode <select id="fm_opencode">${selOpts(CAT.opencode.models,fm.opencode)}</select></span></div>
+   <div class="srow"><b>AI asks for permission</b><span style="grid-column:2/-1"><label style="margin-right:14px"><input type="radio" name="apmode" value="ask" ${(e.approvals||{}).mode!=="auto"?"checked":""}> I decide (Accept / Deny buttons)</label><label><input type="radio" name="apmode" value="auto" ${(e.approvals||{}).mode==="auto"?"checked":""}> An AI judge decides</label></span></div>
+   <div class="srow" id="judgerow"><b>The judge</b><select id="p_judge">${optList(["reviewer",...s.providers],((e.approvals||{}).judge||{}).provider||"reviewer")}</select><select id="m_judge"></select><select id="e_judge"></select></div>
+   <div class="srow"><b></b><span style="grid-column:2/-1"><label><input type="checkbox" id="ap_secrets" ${(e.approvals||{}).autoSecrets?"checked":""}> Let the judge also decide about secret-looking files and uploads <span class="warnc small">(not recommended: otherwise those always wait for you)</span></label><div class="mute small">The judge says approve, deny, or "ask" when only you can know. Everything it decides is listed under Recent permission decisions.</div></span></div>
    <div class="srow"><b>Idle chores</b><span style="grid-column:2/-1">${[["backend","Java backend tests"],["digest","Review digest"]].map(([k,l])=>`<label style="margin-right:12px"><input type="checkbox" id="ic_${k}" ${(e.idleChores||[]).includes(k)?"checked":""}> ${l}</label>`).join("")}<span class="mute small">(no AI; they run while every AI is out of usage)</span></span></div>`;
+  const jd=(e.approvals||{}).judge||{};fillRole("judge",jd.model&&jd.model!=="auto"?jd.model:"",jd.effort&&jd.effort!=="auto"?jd.effort:"");$("#p_judge").onchange=()=>fillRole("judge","","");$("#m_judge").onchange=()=>fillRole("judge",$("#m_judge").value,$("#e_judge").value);
+  const jr=()=>{$("#judgerow").style.opacity=document.querySelector("[name=apmode]:checked").value==="auto"?1:.45};document.querySelectorAll("[name=apmode]").forEach(r=>r.onchange=jr);jr();
   ROLES.forEach(([r])=>{const v=e.roles[r]||{provider:"none"};fillRole(r,v.model||(r==="builder"?"auto":""),v.effort||(r==="builder"?"auto":""));
     $("#p_"+r).onchange=()=>fillRole(r,"","");$("#m_"+r).onchange=()=>{fillRole(r,$("#m_"+r).value,$("#e_"+r).value)}});
   $("#setnote").textContent="Claude is verified for dispatcher and reviewer; other models there are experimental."}
@@ -388,6 +477,7 @@ async function saveSettings(){
     const old=((SET.file||{}).roles||{})[r]||{};if(old.experimental||!(SET.builtin||[]).includes(prov))o.experimental=true}roles[r]=o}
   const body={roles,fallbackBuilders:["copilot","opencode","codex"].filter(f=>$("#fb_"+f).checked),fallbackMaxPerDay:parseInt($("#fbmax").value||"10",10),idleChores:["backend","digest"].filter(k=>$("#ic_"+k).checked)};
   body.models=Object.assign({},(SET.file&&SET.file.models)||{},{copilot:$("#fm_copilot").value,opencode:$("#fm_opencode").value});
+  const jp=$("#p_judge").value;body.approvals={mode:document.querySelector("[name=apmode]:checked").value,autoSecrets:$("#ap_secrets").checked,judge:{provider:jp,model:(jp==="reviewer"||$("#m_judge").disabled)?"auto":($("#m_judge").value||"auto"),effort:(jp==="reviewer"||$("#e_judge").disabled)?"auto":($("#e_judge").value||"auto")}};
   const j=await post("/api/settings",body);
   $("#setmsg").innerHTML=j.saved?'<div class="ok">✓ saved: used from the next agent call</div>':(j.errors||[]).map(x=>`<div class="bad">✗ ${esc(x)}</div>`).join("");
   if(j.saved)loadSettings()}

@@ -56,7 +56,7 @@ Read {folder}/PROPOSAL.md. The person approved it with these notes (they overrid
 {notes}
 >>>
 
-Write these files in the project folder {folder} (use paths inside it), and nothing else. Do not write application code and do not run commands.
+Write these files in the project folder {folder} (use paths inside it), and nothing else. Do not write application code and do not run commands. {existing_rules}
 
 1. PLAN.md - the final decision in plain language: the idea, the tech stack chosen and why, the milestones in order (each with what the person will be able to see or try).
 
@@ -98,13 +98,80 @@ Write these files in the project folder {folder} (use paths inside it), and noth
    node, python, java, maven, dotnet, go, rust, php, ruby, docker, godot. Include every one the stack needs (for example a Next.js site: ["node"]).
 
 Use the file-writing tool for each file."""
+_i = PLAN.index("1. PLAN.md")
+PLAN_FILES_TEXT = PLAN[_i:]
 
+
+ANALYZE = """You are a friendly senior engineer and tech lead. The person ALREADY HAS a software project in the folder {folder} and wants help getting more done on it.
+
+What the person wants, in their own words:
+<<<
+{goal}
+>>>
+
+{hint}
+
+Your job right now: first EXPLORE the project (list its files, read the README, the manifest files such as package.json / pyproject.toml / pom.xml, the main source files and the tests) using read-only tools.
+Then write ONE file: {folder}/PROPOSAL.md. Do not change, create or delete any other file. Do not run commands.
+Write PROPOSAL.md in plain, non-technical language (explain any technical word the first time), with exactly these sections:
+
+## 1. What the project is today
+What it does, what already works, how it is organised. Only say what you actually saw in the files.
+
+## 2. What I understood you want
+3 to 6 sentences.
+
+## 3. Questions I would ask
+At most 5. After each question write the assumption you are making so work can continue without an answer.
+
+## 4. How it is built and tested
+The tech stack that is already in use (do NOT propose changing it) and the exact command that runs the automatic tests today. If there is no test command yet, say so and propose one.
+
+## 5. Milestones
+4 to 10 milestones that get from today to what the person wants, one sentence each. Each must be something the person can see or try.
+
+## 6. Risks
+At most 4, in plain words (for example: parts with no tests, things that look fragile).
+
+Keep the whole file under 140 lines. Write it with the file-writing tool."""
+
+IMPORT = """You are a tech lead. The person ALREADY HAS a project in the folder {folder} and a list of tasks they wrote themselves. The list is in the file {folder}/{source}.
+Read that file, and look at the project (read-only) enough to understand how it is built and tested.
+
+What the person added about it:
+<<<
+{notes}
+>>>
+
+{hint}
+
+Turn their list into task files that coding agents can carry out one at a time. Stay faithful to their list: keep their order and their intent, do not drop tasks, do not invent
+unrelated ones; split a task only when it is too big to build and check in one go. {existing_rules}
+Write these files in {folder} (use paths inside it), and nothing else. Do not change application code and do not run commands.
+""" + "{plan_files}"
+
+RECOMMEND = """You are a tech lead. The folder {folder} already has task files in tasks/ (T*.md). Do NOT change their text, order or gates.
+Your only job is to make sure every task file has a line 'Recommended AI: <provider> <model>, <effort> reasoning' directly under its 'Status:' line (add it, or replace an existing one).
+{recommend_rules}
+Edit only the task files. Do not change application code and do not run commands."""
+
+RECOMMEND_RULES = """RECOMMENDED AI: choose, for every task, which AI should build it and how much it should think, ONLY from this list of what is installed and signed in on this computer:
+{available}
+The reviewer is {reviewer}: never recommend that exact model for building (a different model must check the work).
+Rule of thumb: a small, well-defined task (scaffolding, plain pages, simple tests, docs) gets a cheaper model or a free one with low or medium reasoning;
+anything with real logic, data, security, money, concurrency or a tricky bug gets the strongest available model with high reasoning. Vary it across the tasks
+instead of giving every task the same choice. Write it exactly as: Recommended AI: <provider> <model>, <low|medium|high|xhigh|max> reasoning
+(for example: Recommended AI: codex gpt-6.1-sol, high reasoning). Use the provider name exactly as listed (claude, codex, copilot, opencode, or a custom name)."""
+
+EXISTING_RULES = """THE PROJECT ALREADY EXISTS: if AGENTS.md is already there, keep everything in it and only APPEND a section headed 'Agent Relay rules' with the fixed rules below; if tasks/ already
+has task files, keep them and number any new ones after the highest number; write tasks/T00.md only if the project has NO working automatic test command (then T00 sets one up without
+changing how the application behaves). If relay.project.json or PLAN.md already exist, replace them with the new versions."""
 
 def _provider_cmd(provider, found, model, folder, effort=""):
     """Command and extra environment for a planner AI that may write files but has no shell."""
     env = {}
     if provider == "claude":
-        cmd = [found, "-p", "--model", model or "claude-sonnet-5-5", "--permission-mode", "acceptEdits"] + (["--effort", effort] if effort else []) + ["--allowedTools", "Write", "Edit", "Read", "Glob"]
+        cmd = [found, "-p", "--model", model or "claude-sonnet-5-5", "--permission-mode", "acceptEdits"] + (["--effort", effort] if effort else []) + ["--allowedTools", "Write", "Edit", "Read", "Glob", "Grep"]
     elif provider == "opencode":
         cmd = [found, "run", "--auto", "--dir", str(folder), "-m", model or "opencode/deepseek-v4.1-flash-free"]
         env["OPENCODE_CONFIG_CONTENT"] = json.dumps({"permission": {"bash": "deny"}})
@@ -120,23 +187,75 @@ def _git(path, *args):
     return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, creationflags=NO_WINDOW)
 
 
-def start_job(phase, path, found, provider, model, idea="", stack="", suggest=True, notes="", effort="", available="", reviewer="claude-sonnet-5-5"):
+def _dirty(p):
+    """{path: content hash or None} for every path git sees as changed or untracked right now."""
+    import hashlib
+    r = subprocess.run(["git", "-C", str(p), "status", "--porcelain=v1", "--untracked-files=all"], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    out = {}
+    for line in r.stdout.splitlines():
+        if len(line) < 4: continue
+        path = line[3:].strip().strip(chr(34))
+        if " -> " in path: path = path.split(" -> ")[-1]
+        f = p / path
+        try: out[path.replace(chr(92), "/")] = hashlib.sha1(f.read_bytes()).hexdigest() if f.is_file() else None
+        except OSError: out[path.replace(chr(92), "/")] = None
+    return out
+
+
+def _allowed_path(path):
+    return path in ("PROPOSAL.md", "PLAN.md", "AGENTS.md", "relay.project.json", "IMPORTED-TASKS.md") or path.startswith("tasks/")
+
+
+def _guard(p, before):
+    """After a planning job: put back any file the AI changed that it had no business changing (only files that were clean before), and report the rest."""
+    after = _dirty(p); notes = []
+    for path, h in after.items():
+        if _allowed_path(path): continue
+        if path not in before:                                   # new or newly modified: was clean before
+            tracked = subprocess.run(["git", "-C", str(p), "ls-files", "--error-unmatch", "--", path], capture_output=True, creationflags=NO_WINDOW).returncode == 0
+            if tracked: subprocess.run(["git", "-C", str(p), "checkout", "--", path], capture_output=True, creationflags=NO_WINDOW); notes.append("put back " + path)
+            else:
+                try: (p / path).unlink(); notes.append("removed the new file " + path)
+                except OSError: notes.append("could not remove " + path)
+        elif before[path] != h: notes.append("WARNING: " + path + " already had your changes and the AI changed it too: check it with git diff")
+    return notes
+
+
+def start_job(phase, path, found, provider, model, idea="", stack="", suggest=True, notes="", effort="", available="", reviewer="claude-sonnet-5-5",
+              goal="", hint="", existing=False, source=""):
     p = pathlib.Path(path)
-    if not (p / ".git").exists(): return {"ok": False, "error": "That project folder is not set up. Create the project first."}
+    if not (p / ".git").exists(): return {"ok": False, "error": "That project folder is not set up. Create or attach the project first."}
     if not found: return {"ok": False, "error": f"{provider} is not installed."}
     cmd, env = _provider_cmd(provider, found, model, p, effort)
     if not cmd: return {"ok": False, "error": "unknown planner " + str(provider)}
+    folder = str(p).replace(chr(92), "/")
+    avail = available or "   (only the AI doing the planning is known: recommend it)"
+    ex_rules = EXISTING_RULES if existing else ""
+    hint_text = ("What the app already found out about the project: " + hint) if hint else ""
     if phase == "propose":
         if not idea.strip(): return {"ok": False, "error": "Describe your idea first."}
         stack_line = "(none yet: suggest one)" if suggest or not stack.strip() else stack.strip()
-        prompt = PROPOSE.format(idea=idea.strip(), stack_line=stack_line, stack_task=STACK_SUGGEST if (suggest or not stack.strip()) else STACK_GIVEN, folder=str(p).replace(chr(92), "/"))
+        prompt = PROPOSE.format(idea=idea.strip(), stack_line=stack_line, stack_task=STACK_SUGGEST if (suggest or not stack.strip()) else STACK_GIVEN, folder=folder)
+        expect = ["PROPOSAL.md"]
+    elif phase == "analyze":
+        if not goal.strip(): return {"ok": False, "error": "Say what you want done on the project."}
+        prompt = ANALYZE.format(goal=goal.strip(), folder=folder, hint=hint_text)
         expect = ["PROPOSAL.md"]
     elif phase == "plan":
         if not (p / "PROPOSAL.md").exists(): return {"ok": False, "error": "There is no proposal yet."}
-        prompt = PLAN.format(notes=notes.strip() or "(no changes: the proposal is approved as written)", folder=str(p).replace(chr(92), "/"), available=available or "   (only the AI doing the planning is known: recommend it)", reviewer=reviewer)
+        prompt = PLAN.format(notes=notes.strip() or "(no changes: the proposal is approved as written)", folder=folder, available=avail, reviewer=reviewer, existing_rules=ex_rules)
         expect = list(PLAN_FILES)
+    elif phase == "import":
+        if not source or not (p / source).exists(): return {"ok": False, "error": "There is no task list to import."}
+        prompt = IMPORT.format(folder=folder, source=source, notes=notes.strip() or goal.strip() or "(nothing more)", hint=hint_text, existing_rules=ex_rules,
+                               plan_files=PLAN_FILES_TEXT.format(folder=folder, available=avail, reviewer=reviewer, existing_rules=ex_rules, notes=""))
+        expect = list(PLAN_FILES)
+    elif phase == "recommend":
+        prompt = RECOMMEND.format(folder=folder, recommend_rules=RECOMMEND_RULES.format(available=avail, reviewer=reviewer))
+        expect = []
     else:
         return {"ok": False, "error": "unknown phase"}
+    before = _dirty(p) if existing else {}
     jid = uuid.uuid4().hex[:8]
     JOBS[jid] = {"state": "running", "phase": phase, "path": str(p), "started": time.time(), "log": "", "provider": provider, "missing": []}
 
@@ -146,7 +265,12 @@ def start_job(phase, path, found, provider, model, idea="", stack="", suggest=Tr
             r = subprocess.run(cmd, input=prompt, text=True, encoding="utf-8", capture_output=True, cwd=str(p), env=e, timeout=1500, creationflags=NO_WINDOW)
             out = ((r.stdout or "") + (r.stderr or ""))[-1500:]
             missing = [f for f in expect if not (p / f).exists()]
-            if phase == "plan" and not list((p / "tasks").glob("T*.md")): missing.append("tasks/")
+            if phase in ("plan", "import") and not list((p / "tasks").glob("T*.md")): missing.append("tasks/")
+            if phase == "recommend" and not any("recommended ai:" in f.read_text(encoding="utf-8", errors="replace").lower() for f in (p / "tasks").glob("T*.md")): missing.append("Recommended AI lines")
+            if existing:
+                guard = _guard(p, before)
+                if guard: out = out + chr(10) + "[guard] " + "; ".join(guard)
+                JOBS[jid]["guard"] = guard
             JOBS[jid].update(state="done" if not missing and r.returncode == 0 else "failed", log=out, missing=missing, seconds=int(time.time() - JOBS[jid]["started"]))
         except subprocess.TimeoutExpired:
             JOBS[jid].update(state="failed", log="The planner took longer than 25 minutes and was stopped.", missing=expect)
@@ -172,7 +296,7 @@ def commit_plan(path):
     """Commit the plan files (and only those) on the working branch."""
     p = pathlib.Path(path)
     if not (p / ".git").exists(): return {"ok": False, "error": "not a git project"}
-    files = [f for f in ("PROPOSAL.md", "PLAN.md", "AGENTS.md", "relay.project.json") if (p / f).exists()]
+    files = [f for f in ("PROPOSAL.md", "PLAN.md", "AGENTS.md", "relay.project.json", "IMPORTED-TASKS.md") if (p / f).exists()]
     if (p / "tasks").exists(): files.append("tasks")
     if not files: return {"ok": False, "error": "no plan files to commit"}
     _git(p, "add", "--", *files)

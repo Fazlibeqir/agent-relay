@@ -12,6 +12,6 @@ if (-not $healthy) { python -m venv --clear .build\venv }
 	--paths dashboard `
 	--add-data "$Kit\dashboard\index.html;." --add-data "$Kit\dashboard\providers.json;." `
 	--add-data "$Kit\template;template" --add-data "$Kit\relay.settings.example.json;." `
-	--hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import tkinter `
+	--hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import existing --hidden-import tkinter `
 	agent_relay_app.py
 Write-Host "`nBuilt: $Kit\dist\AgentRelay.exe" -ForegroundColor Green

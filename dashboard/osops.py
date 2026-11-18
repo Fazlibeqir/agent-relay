@@ -206,6 +206,18 @@ def start_background(project, script):
     subprocess.Popen(inner, cwd=str(proj), stdout=log, stderr=log, start_new_session=True)
 
 
+def pick_file(title="Choose a file"):
+    try:
+        import tkinter
+        from tkinter import filedialog
+        r = tkinter.Tk(); r.withdraw(); r.attributes("-topmost", True)
+        f = filedialog.askopenfilename(title=title, filetypes=[("Task lists", "*.md *.txt *.csv *.json *.yaml *.yml *.markdown"), ("All files", "*.*")])
+        r.destroy()
+        return {"ok": True, "path": f or ""}
+    except Exception as ex:
+        return {"ok": False, "error": "A file picker is not available here (" + str(ex)[:80] + "). Type the path instead."}
+
+
 def pick_folder(title="Choose a folder"):
     try:
         import tkinter

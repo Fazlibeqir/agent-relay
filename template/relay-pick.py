@@ -83,6 +83,104 @@ def guard(taskfile, backup):
     return restored
 
 
+SENSITIVE = [r"(^|/)\.env(\.[^/]*)?$", r"\.(pem|key|p12|pfx|jks|keystore|ppk)$", r"(^|/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$", r"(^|/)\.(npmrc|pypirc|netrc|pgpass|git-credentials)$",
+             r"(^|/)(credentials|secrets?)(\.[^/]*)?$", r"(^|/)service[-_]?account[^/]*\.json$", r"\.tfstate(\.backup)?$", r"(^|/)\.aws/", r"(^|/)\.ssh/", r"(password|passwd)[^/]*$"]
+SAFE_NAMES = re.compile(r"\.(example|sample|template|dist|md|txt)$", re.I)
+REQ_DIR = "relay-requests"
+
+
+def is_sensitive(path):
+    p = path.replace(chr(92), "/")
+    if SAFE_NAMES.search(p) and not p.lower().endswith((".pem", ".key")): return False
+    return any(re.search(rx, p, re.I) for rx in SENSITIVE)
+
+
+def _req_files(repo):
+    d = pathlib.Path(repo) / REQ_DIR
+    return sorted(d.glob("*.json")) if d.is_dir() else []
+
+
+def _req_load(f):
+    import json
+    try: r = json.loads(f.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError): return None
+    if not isinstance(r, dict): return None
+    r.setdefault("id", f.stem); r.setdefault("type", "other"); r.setdefault("status", "pending"); r.setdefault("executed", False)
+    r["id"] = f.stem
+    return r
+
+
+def _req_save(repo, r):
+    import json
+    d = pathlib.Path(repo) / REQ_DIR; d.mkdir(exist_ok=True)
+    (d / (r["id"] + ".json")).write_text(json.dumps(r, indent=1), encoding="utf-8", newline="\n")
+
+
+def req_command(a, repo="."):
+    import json, os, time
+    sub = a[0] if a else ""
+    if sub == "new":        # req new <type> <task> <action> <why> [files...]   (commit message in $REQ_MESSAGE)
+        typ, task, action, why = a[1], a[2], a[3], a[4]
+        rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^a-z0-9]+", "-", typ.lower())
+        n = 1; base = rid
+        while (pathlib.Path(repo) / REQ_DIR / (rid + ".json")).exists(): n += 1; rid = "%s-%d" % (base, n)
+        r = {"id": rid, "type": typ, "task": task, "action": action, "why": why, "files": a[5:], "message": os.environ.get("REQ_MESSAGE", ""), "status": "pending",
+             "createdAt": time.strftime("%Y-%m-%d %H:%M:%S"), "executed": False}
+        _req_save(repo, r); print(rid)
+    elif sub == "pending":
+        print(sum(1 for f in _req_files(repo) if (_req_load(f) or {}).get("status") == "pending"))
+    elif sub == "take":     # decided but not yet carried out: one JSON object per line
+        for f in _req_files(repo):
+            r = _req_load(f)
+            if r and r["status"] in ("approved", "denied") and not r.get("executed"): print(json.dumps(r))
+    elif sub == "done":     # req done <id> <result>
+        for f in _req_files(repo):
+            r = _req_load(f)
+            if r and r["id"] == a[1]: r["executed"] = True; r["result"] = a[2] if len(a) > 2 else ""; _req_save(repo, r)
+    elif sub == "prompt":   # what the person decided, for the builder's next prompt
+        lines = []
+        for f in _req_files(repo)[-30:]:
+            r = _req_load(f)
+            if not r or r["status"] == "pending": continue
+            what = r.get("action") or r["type"]
+            files = (" (" + ", ".join(r.get("files", [])[:6]) + ")") if r.get("files") else ""
+            note = (" The person said: " + r["note"]) if r.get("note") else ""
+            lines.append("- %s: %s%s.%s" % ("APPROVED" if r["status"] == "approved" else "DENIED: do not try again, find another way", what, files, note))
+        if lines: print("DECISIONS BY THE PERSON (they own this project; respect them):" + chr(10) + chr(10).join(lines[-12:]))
+    elif sub == "decide":   # req decide <id> <approve|deny> <by> <reason>
+        for f in _req_files(repo):
+            r = _req_load(f)
+            if r and r["id"] == a[1] and r["status"] == "pending":
+                r["status"] = "approved" if a[2] == "approve" else "denied"; r["decidedBy"] = a[3]; r["note"] = (a[4] if len(a) > 4 else "")[:300]
+                r["decidedAt"] = time.strftime("%Y-%m-%d %H:%M:%S"); r["executed"] = False; _req_save(repo, r)
+    elif sub == "verdict":  # reads an AI's answer on stdin, prints  decision|reason  (decision may be approve, deny or ask; nothing printed when unreadable)
+        text = sys.stdin.read()
+        for m in re.finditer(r"\{[^{}]*\}", text):
+            try: v = json.loads(m.group(0))
+            except ValueError: continue
+            d = str(v.get("decision", "")).lower().strip()
+            if d in ("approve", "deny", "ask"): print("%s|%s" % (d, str(v.get("reason", "")).replace(chr(10), " ")[:250])); break
+    elif sub == "judge-prompt":   # req judge-prompt <id>
+        for f in _req_files(repo):
+            r = _req_load(f)
+            if not (r and r["id"] == a[1]): continue
+            rules = ""
+            try: rules = "".join(open(pathlib.Path(repo) / "AGENTS.md", encoding="utf-8", errors="replace").readlines()[:40])
+            except OSError: pass
+            print("You are the safety judge for an automated coding relay. A coding AI asked for permission to do something it is not allowed to do on its own. Decide.\n\n"
+                  "REQUEST\n  kind: %s\n  task: %s\n  action: %s\n  why: %s\n  details: %s\n  files: %s\n\nPROJECT RULES (start of AGENTS.md)\n%s\n\n"
+                  "HOW TO DECIDE\n- approve only if it is clearly necessary for the named task, low risk, reversible, stays inside the project folder, sends no secret or data outside, "
+                  "spends no money, makes no system-wide change and destroys nothing;\n- the explanation must be specific, not vague;\n- files that look like secrets (.env, keys, tokens, passwords) "
+                  "or an upload of the work branch: approve only when it is plainly safe and wanted, otherwise deny;\n- deny when unsure;\n- answer ask when only the person can know "
+                  "(for example it needs their account, their money, or their taste).\n\nAnswer with exactly one line of JSON and nothing else: "
+                  "{\"decision\": \"approve\" or \"deny\" or \"ask\", \"reason\": \"one short sentence in plain words\"}"
+                  % (r["type"], r.get("task", ""), r.get("action", ""), r.get("why", ""), r.get("details", ""), ", ".join(r.get("files", [])) or "(none)", rules))
+    elif sub == "pending-list":
+        for f in _req_files(repo):
+            r = _req_load(f)
+            if r and r["status"] == "pending": print("%s|%s|%s" % (r["id"], r["type"], (r.get("action") or "")[:80]))
+
+
 KNOWN = ("claude", "codex", "copilot", "opencode")
 EFFORT = re.compile(r"\b(none|minimal|low|medium|high|xhigh|max|ultra)\b\s+reasoning", re.I)
 
@@ -113,6 +211,12 @@ def recommended(taskfile, repo="."):
 if __name__ == "__main__":
     a = sys.argv[1:]
     cmd = a[0] if a else "list"
+    if cmd == "sensitive":
+        for line in sys.stdin.read().splitlines():
+            if line.strip() and is_sensitive(line.strip()): print(line.strip())
+        sys.exit(0)
+    if cmd == "req":
+        req_command(a[1:]); sys.exit(0)
     if cmd == "rec":
         print(recommended(a[1], a[2] if len(a) > 2 else ".")); sys.exit(0)
     if cmd == "guard":

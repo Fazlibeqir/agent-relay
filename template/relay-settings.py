@@ -25,6 +25,8 @@ DEFAULTS = {
     "fallbackMaxPerDay": 10,
     "models": {"copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5"},
     "idleChores": ["backend", "digest"],
+    # who answers an AI's request for permission: the person ("ask") or an AI judge ("auto"). Secrets and uploads stay with the person unless autoSecrets is on.
+    "approvals": {"mode": "ask", "autoSecrets": False, "judge": {"provider": "reviewer", "model": "auto", "effort": "auto"}},
 }
 
 
@@ -73,6 +75,10 @@ def load(path):
     for k in ("fallbackBuilders", "fallbackMaxPerDay", "idleChores"):
         if k in raw: cfg[k] = raw[k]
     cfg["models"].update(raw.get("models") or {})
+    ap = raw.get("approvals")
+    if isinstance(ap, dict):
+        j = ap.get("judge") if isinstance(ap.get("judge"), dict) else {}
+        cfg["approvals"] = {"mode": ap.get("mode", "ask"), "autoSecrets": bool(ap.get("autoSecrets", False)), "judge": {**cfg["approvals"]["judge"], **j}}
     return cfg, problems
 
 
@@ -104,6 +110,13 @@ def validate(cfg, problems):
     if not isinstance(cfg["fallbackMaxPerDay"], int) or not 0 <= cfg["fallbackMaxPerDay"] <= 200: errs.append("fallbackMaxPerDay must be 0-200")
     for k, v in cfg["models"].items():
         if not isinstance(v, str) or not SAFE.match(v): errs.append(f"models.{k} has characters that are not allowed")
+    ap = cfg["approvals"]
+    if ap["mode"] not in ("ask", "auto"): errs.append("approvals.mode must be ask or auto")
+    jp = ap["judge"].get("provider", "reviewer")
+    if jp != "reviewer" and jp not in list(PROVIDERS) + cfg.get("_custom", []): errs.append("approvals.judge.provider: unknown provider '%s'" % jp)
+    for k in ("model", "effort"):
+        v = ap["judge"].get(k, "auto")
+        if not isinstance(v, str) or not SAFE.match(v): errs.append("approvals.judge." + k + " has characters that are not allowed")
     if not isinstance(cfg["idleChores"], list) or any(x not in ("backend", "digest") for x in cfg["idleChores"]): errs.append("idleChores may contain backend and digest")
 
 
@@ -132,6 +145,12 @@ def shell(path):
     out.append(f"S_OPENCODE_MODEL='{cfg['models']['opencode']}'")
     out.append(f"S_ADVISOR='{cfg['models']['advisor']}'")
     out.append(f"S_IDLE_CHORES='{' '.join(cfg['idleChores'])}'")
+    ap = cfg["approvals"]; jd = ap["judge"]
+    out.append(f"S_APPROVALS_MODE='{ap['mode']}'")
+    out.append(f"S_APPROVALS_SECRETS='{1 if ap['autoSecrets'] else 0}'")
+    out.append(f"S_JUDGE_PROVIDER='{'' if jd.get('provider', 'reviewer') == 'reviewer' else jd['provider']}'")
+    out.append(f"S_JUDGE_MODEL='{jd.get('model', 'auto')}'")
+    out.append(f"S_JUDGE_EFFORT='{jd.get('effort', 'auto')}'")
     out.append(f"S_VALID='{1 if ok else 0}'")
     print("\n".join(out))
 

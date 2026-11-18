@@ -22,6 +22,29 @@ It walks you through five steps, and then runs by itself:
 After Start the same page is the dashboard: what is happening now with countdowns, each AI's activity and usage, what is done, what broke, what is next, the settings
 (which AI plays which role, backups, idle chores) and the per-task AI table. Settings take effect from the next AI call, with no restart.
 
+## Projects you already have
+
+Step 2 also takes an existing project. Pick its folder and the app shows what it found (stack, test command, branch, unsaved changes). Then:
+- **The tasks are already there** (`tasks/T*.md` in the right shape): the AI only suggests which model builds each task.
+- **I have a task list** (a file, or pasted text, any format): the AI turns it into proper tasks, faithfully and in your order.
+- **I don't have tasks yet**: say what you want done; the AI reads the project, proposes milestones for you to approve, and writes the tasks.
+
+The relay works on its own `agent-run` branch (created for you; your `main` is never touched) and adds its scripts there. Anything a planning AI changes outside the plan files
+is put back (and anything it cannot safely put back is reported). A folder that is not a git project can be made into one on request.
+
+## When an AI asks for permission
+
+An AI that needs something outside its rules (pushing, uploading, installing programs system-wide, using a paid or outside service, handling secrets) is told to file a request
+instead of doing it. The relay also holds back any file that looks like a secret (`.env`, keys, tokens, `secrets.json`, `.aws/`...) when a builder lists it for a commit.
+The page shows a card for each request with plain-language risk and **Accept / Deny** buttons (and an optional note for the AI). The relay waits for the answer (up to 15 minutes by
+default, then carries on without it), and then acts: an accepted secret file is committed, a denied one is added to `.gitignore`, an accepted push pushes the work branch (never `main`, never forced),
+and the builder is told every decision in its next prompt.
+
+**Auto mode** (Settings): an AI judge answers instead of you, choosing approve, deny, or "ask" when only you can know. Secret-looking files and uploads still wait for you unless you also
+tick the box that hands those over. Everything the judge decides is listed under "Recent permission decisions".
+
+This is a safety net, not a sandbox: the AIs run with your permissions and could in principle ignore the rules. Do not keep secrets in a folder you point an AI at if you cannot afford a leak.
+
 ## Run it
 
 | | Windows | Linux |
