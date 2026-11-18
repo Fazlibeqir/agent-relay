@@ -57,6 +57,20 @@ def parked(repo):
 def pick(repo):
     tasks = load(repo); skip = parked(repo)
     cur = repo / "CURRENT_TASK.md"
+    # the person's "do this next" list (relay-priority.txt, one task id per line): used first, and each id is taken off once it is picked or no longer open
+    pf = repo / "relay-priority.txt"
+    if pf.exists():
+        ids = [l.strip() for l in pf.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+        by_id = {t["id"]: t for t in tasks}
+        keep = [i for i in ids if i in by_id and by_id[i]["state"] == "todo"]
+        chosen = next((i for i in keep if i not in skip), None)
+        rest = [i for i in keep if i != chosen]
+        pf.write_text("\n".join(rest) + ("\n" if rest else ""), encoding="utf-8", newline="\n")
+        if chosen:
+            t = by_id[chosen]
+            head = "tasks/%s.md\n%s\nRECOMMENDED_AI: %s\n\n" % (t["id"], t["title"].replace(" - ", " \u2014 ", 1), t["rec"])
+            cur.write_text(head + t["text"], encoding="utf-8", newline="\n")
+            return t["id"]
     for t in tasks:
         if t["state"] == "todo" and t["id"] not in skip:
             head = "tasks/%s.md\n%s\nRECOMMENDED_AI: %s\n\n" % (t["id"], t["title"].replace(" - ", " — ", 1), t["rec"])

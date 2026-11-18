@@ -22,6 +22,16 @@ It walks you through five steps, and then runs by itself:
 After Start the same page is the dashboard: what is happening now with countdowns, each AI's activity and usage, what is done, what broke, what is next, the settings
 (which AI plays which role, backups, idle chores) and the per-task AI table. Settings take effect from the next AI call, with no restart.
 
+## The dashboard tabs
+
+- **Overview**: what is happening now with countdowns, each AI's activity and usage, the **next five tasks** in line (with the AI chosen for each and its progress), what is
+  waiting for you, what is done and what broke.
+- **Tasks**: every task with its status (not started, in progress, building now, needs your review, done), percent and gate count, filters and search, and the AI, model and
+  reasoning level for each. For projects run from task files, a task that needs your review has **Looks good** (ticks your own check and finishes it) and **Needs changes**
+  (your note becomes a new automatic check, the task is reopened and built next). **Do next** moves any open task to the front. A project that keeps its live status in its own
+  board (like the game relay) shows state and percent from its task files without these buttons.
+- **AIs & settings**: roles, backups, permission handling (you or an AI judge), idle chores, tools and sign-ins, and adding other AIs.
+
 ## Projects you already have
 
 Step 2 also takes an existing project. Pick its folder and the app shows what it found (stack, test command, branch, unsaved changes). Then:

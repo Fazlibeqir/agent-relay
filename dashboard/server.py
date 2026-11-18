@@ -273,6 +273,7 @@ def build_state(relay, providers):
     checks = re.findall(r"^\[checks\] (.+)$", t, re.M)
     state["testCheck"] = {"count": len(checks), "label": checks[-1] if checks else ""}
     state["requests"] = appapi.list_requests(relay)[-14:]
+    state["queue"] = appapi.next_tasks(relay, 5)
     return state
 
 
@@ -536,6 +537,13 @@ class Handler(BaseHTTPRequestHandler):
                 ch = normalize_task_recs(Handler.relay, self._reviewer_model())
                 r = planner.commit_plan(str(Handler.relay)); r["normalized"] = ch
                 return reply(r)
+            if path in ("/api/task/approve", "/api/task/changes", "/api/task/next"):
+                if need_project(): return
+                if appapi.relay_script(Handler.relay) != "relay-files.sh":
+                    return reply({"ok": False, "error": "This project keeps its review state in its own board, so approve or ask for changes there."}, 400)
+                if path.endswith("approve"): return reply(appapi.approve_task(Handler.relay, body.get("task", "")))
+                if path.endswith("changes"): return reply(appapi.request_changes(Handler.relay, body.get("task", ""), body.get("note", "")))
+                return reply(appapi.queue_next(Handler.relay, body.get("task", "")))
             if path == "/api/task/recommend":
                 if need_project(): return
                 return reply(appapi.set_task_rec(Handler.relay, body.get("task", ""), body.get("provider", ""), body.get("model", ""), body.get("effort", "")))
@@ -565,7 +573,10 @@ class Handler(BaseHTTPRequestHandler):
                         if fp.exists(): d[k] = fp.read_text(encoding="utf-8", errors="replace")
                 return reply(d)
             if p == "/api/wizard": return reply(wizard_state(self.relay))
-            if p == "/api/tasks": return reply({"tasks": appapi.list_tasks(self.relay) if self.relay else []})
+            if p == "/api/tasks":
+                nt = appapi.next_tasks(self.relay, 1) if self.relay else {}
+                return reply({"tasks": appapi.list_tasks(self.relay) if self.relay else [], "current": nt.get("current", ""),
+                              "actions": bool(self.relay and appapi.relay_script(self.relay) == "relay-files.sh")})
             if p == "/api/setup":
                 s = appapi.detect_setup()
                 manual = appapi.load_config().get("manualSignedIn", {})

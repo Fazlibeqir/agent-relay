@@ -29,7 +29,6 @@ textarea{width:100%;min-height:90px}label.l{display:block;margin:12px 0 4px;font
 .stepper{display:flex;gap:4px;margin:0 0 14px;flex-wrap:wrap}
 .stepper div{flex:1;min-width:110px;padding:8px 10px;border-radius:8px;background:var(--bar);color:var(--mute);font-size:13px;cursor:default}
 .stepper div.cur{background:var(--acc);color:#fff;font-weight:600}.stepper div.done{background:var(--card);border:1px solid var(--ok);color:var(--ok)}
-.stepper div.done,.stepper div.cur{cursor:pointer}
 .tool{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--line)}.tool:last-child{border:0}.tool .nm{min-width:190px}
 code{font:12px ui-monospace,Consolas,monospace;background:var(--bar);padding:1px 5px;border-radius:4px}
 pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8px;max-height:340px;overflow:auto;font:12.5px/1.45 ui-monospace,Consolas,monospace}
@@ -38,6 +37,14 @@ pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8p
 .tag{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--ok);color:#fff;margin-left:6px}
 .nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap}
 .opt{display:flex;gap:8px;align-items:flex-start;padding:6px 0}
+.tabs{display:flex;gap:4px;margin:0 0 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tab{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:8px 16px;font-weight:600;color:var(--mute)}
+.tab.on{color:var(--ink);border-bottom-color:var(--acc)}
+.grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
+.chip{border-radius:99px;padding:4px 12px;font-size:13px}.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}.chip b{margin-left:4px}
+.badge{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
+.badge.todo{color:var(--acc);border-color:var(--acc)}.badge.owner{color:var(--warn);border-color:var(--warn)}.badge.done{color:var(--ok);border-color:var(--ok)}
+table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;border-top:1px solid var(--line);vertical-align:middle}table.tt tr.h td{border-top:0;color:var(--mute);font-size:12px}
 </style>
 <main>
 <header><h1>Agent Relay</h1><span id="status" class="pill stop">…</span><span id="meta" class="mute"></span><span style="flex:1"></span>
@@ -49,27 +56,40 @@ pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8p
 </div>
 
 <div id="dash" hidden>
+  <div class="tabs"><button class="tab on" data-tab="overview">Overview</button><button class="tab" data-tab="tasks">Tasks</button><button class="tab" data-tab="setup">AIs &amp; settings</button></div>
   <div id="reqbox"></div>
-  <div class="card"><h2>Now</h2><div id="now">loading…</div></div>
-  <div class="grid" id="providers"></div>
-  <div class="grid" style="margin-top:12px">
-    <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
-    <div class="card"><h2>Broke</h2><ul id="broke"></ul></div>
-    <div class="card"><h2>Next</h2><ul id="next"></ul><h2 style="margin-top:12px">Waiting for you</h2><div id="queue" class="mute"></div><div id="digestlink"></div></div>
-    <div class="card"><h2>Idle chores</h2><ul id="idle"></ul></div>
+
+  <div id="tab-overview">
+    <div class="card"><h2>Now</h2><div id="now">loading…</div><ul id="next" class="small" style="margin-top:8px"></ul></div>
+    <div class="grid" id="providers"></div>
+    <div class="grid2" style="margin-top:12px">
+      <div class="card"><h2>Next in line</h2><div id="nexttasks" class="mute">loading…</div></div>
+      <div>
+        <div class="card"><h2>Waiting for you</h2><div id="queue" class="mute"></div><div id="digestlink"></div></div>
+        <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card"><h2>Broke</h2><ul id="broke"></ul></div>
+      <div class="card"><h2>Idle chores</h2><ul id="idle"></ul></div>
+    </div>
   </div>
-  <div class="card"><h2>Which AI builds which task</h2><div id="dashtasks" class="mute">loading…</div></div>
-  <div class="card"><h2>Settings: who does what (applies from the next agent call, no restart)</h2>
-    <div id="setmsg"></div><div id="setform" class="mute">loading…</div>
-    <div style="margin-top:10px"><button id="setsave">Save</button> <button id="setreload">Reload</button> <span class="mute small" id="setnote"></span></div></div>
-  <div class="card"><h2>AI tools and sign-ins</h2><div id="dashtools"></div><div id="customarea"></div></div>
+
+  <div id="tab-tasks" hidden></div>
+
+  <div id="tab-setup" hidden>
+    <div class="card"><h2>Settings: who does what (applies from the next agent call, no restart)</h2>
+      <div id="setmsg"></div><div id="setform" class="mute">loading…</div>
+      <div style="margin-top:10px"><button id="setsave">Save</button> <button id="setreload">Reload</button> <span class="mute small" id="setnote"></span></div></div>
+    <div class="card"><h2>AI tools and sign-ins</h2><div id="dashtools"></div><div id="customarea"></div></div>
+  </div>
 </div>
 </main>
 <script>
 const $=s=>document.querySelector(s);
 const fmt=s=>{s=Math.round(Math.abs(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return(h?h+":"+String(m).padStart(2,"0"):String(m))+":"+String(x).padStart(2,"0")};
 const esc=t=>String(t??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const bar=(p)=>`<div class="bar ${p>=95?"full":p>=75?"hi":""}"><i style="width:${Math.min(100,p)}%"></i></div>`;
+const bar=(p,mode)=>`<div class="bar ${mode==="task"?"":p>=95?"full":p>=75?"hi":""}"><i style="width:${Math.min(100,p)}%"></i></div>`;
 const NL=String.fromCharCode(10);
 async function get(p){return (await fetch(p)).json()}
 async function post(p,b){const r=await fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})});return r.json()}
@@ -105,8 +125,7 @@ function headerButtons(){const p=WZ.project;$("#btnstart").hidden=!(MODE==="dash
 
 /* ------------------------------------------------------------ stepper */
 const STEPS=["Your AI tools","Your project","The plan","Which AI builds what","Start"];
-function renderStepper(){$("#stepper").innerHTML=STEPS.map((s,i)=>`<div class="${i+1===STEP?"cur":i+1<STEP?"done":""}" data-go="${i+1}">${i+1<STEP?"✓ ":(i+1)+". "}${s}</div>`).join("");
-  document.querySelectorAll("[data-go]").forEach(d=>d.onclick=()=>{const n=+d.dataset.go;if(n<=STEP||n===STEP+1&&canNext()){STEP=n;renderStepper();renderStep()}})}
+function renderStepper(){$("#stepper").innerHTML=STEPS.map((s,i)=>`<div class="${i+1===STEP?"cur":i+1<STEP?"done":""}">${i+1<STEP?"✓ ":(i+1)+". "}${s}</div>`).join("")}
 function go(n){STEP=n;renderStepper();renderStep();window.scrollTo(0,0)}
 function canNext(){return true}
 
@@ -347,19 +366,39 @@ async function drawPlanDone(){
   $("#next3").onclick=()=>{const miss=req.filter(r=>!r.found);if(miss.length&&!confirm("These are still missing: "+miss.map(m=>m.name).join(", ")+". The tests may fail without them. Continue anyway?"))return;go(4)}}
 
 /* ------------------------------------------------------------ step 4: which AI builds what */
-async function taskTable(sel,onchange){
-  const t=(await get("/api/tasks")).tasks,u=usableAIs().map(x=>x.id).concat(((SETUP||{}).tools||[]).filter(x=>x.custom&&x.found).map(x=>x.id));
-  const provs=["",...new Set(u)];
-  $(sel).innerHTML=t.length?`<table style="width:100%;border-collapse:collapse"><tr class="mute small"><td>Task</td><td>AI</td><td>Model</td><td>Reasoning</td></tr>`+t.map(k=>`<tr data-t="${k.id}" style="border-top:1px solid var(--line)"><td style="padding:6px 8px 6px 0"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
-    <td><select data-f="p">${provs.map(x=>`<option value="${x}" ${x===k.rec.provider?"selected":""}>${x||"(follow the setting)"}</option>`).join("")}</select></td><td><select data-f="m"></select></td><td><select data-f="e"></select></td></tr>`).join("")+"</table>":'<div class="mute">No tasks yet.</div>';
-  document.querySelectorAll(sel+" tr[data-t]").forEach(tr=>{const k=t.find(x=>x.id===tr.dataset.t);
+async function taskTable(sel,onchange,opts){
+  opts=opts||{};const res=opts.data||await get("/api/tasks"),all=res.tasks,cur=(WZ&&WZ.project&&WZ.project.running)?(res.current||""):"",acts=!!res.actions&&!!opts.filter&&!opts.plain;
+  const u=usableAIs().map(x=>x.id).concat(((SETUP||{}).tools||[]).filter(x=>x.custom&&x.found).map(x=>x.id));
+  const provs=["",...new Set(u)];let t=all;
+  const f=opts.filter;
+  if(f&&f!=="all")t=t.filter(k=>{const c=catOf(k,cur);return f==="todo"?(c==="progress"||c==="new"||c==="building"):f==="progress"?(c==="progress"||c==="building"):c===f});
+  if(opts.q){const q=opts.q.toLowerCase();t=t.filter(k=>(k.id+" "+k.title).toLowerCase().includes(q))}
+  const total=t.length;if(opts.limit)t=t.slice(0,opts.limit);
+  if(opts.count&&$(opts.count))$(opts.count).textContent=total+" task"+(total===1?"":"s");
+  const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done"};
+  const actions=k=>{const c=catOf(k,cur);if(!acts)return"";
+    if(c==="review")return`<button class="go" data-act="approve">Looks good</button> <button data-act="changes">Needs changes…</button>`;
+    if(c==="progress"||c==="new")return`<button data-act="next">Do next</button>`;return""};
+  $(sel).innerHTML=t.length?`<div style="overflow-x:auto"><table class="tt"><tr class="h"><td>Task</td><td>Status</td>${acts?"<td></td>":""}<td>AI</td><td>Model</td><td>Reasoning</td></tr>`+t.map(k=>{const c=catOf(k,cur);return`<tr data-t="${k.id}"><td style="max-width:280px"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
+    <td style="white-space:nowrap"><span class="badge ${c==="building"||c==="progress"||c==="new"?"todo":c==="review"?"owner":"done"}">${lab[c]}</span><div class="row small mute" style="width:110px;margin-top:3px"><span>${k.completion}%</span><span>${k.gatesDone}/${k.gates}</span></div><div style="width:110px">${bar(k.completion,"task")}</div></td>
+    ${acts?`<td style="white-space:nowrap">${actions(k)}</td>`:""}
+    <td><select data-f="p">${provs.map(x=>`<option value="${x}" ${x===k.rec.provider?"selected":""}>${x||"(follow the setting)"}</option>`).join("")}</select></td><td><select data-f="m"></select></td><td><select data-f="e"></select></td></tr>`}).join("")+"</table></div>"+
+    (opts.limit&&total>t.length?`<div style="margin-top:10px"><button id="tmore">Show more (${total-t.length} left)</button></div>`:""):'<div class="mute">No tasks here.</div>';
+  const mb=$("#tmore");if(mb&&opts.more)mb.onclick=opts.more;
+  const refresh=()=>{if(opts.filter&&$("#tab-tasks")&&!$("#tab-tasks").hidden)drawTasksTab();else taskTable(sel,onchange,opts)};
+  document.querySelectorAll(sel+" tr[data-t]").forEach(tr=>{const k=all.find(x=>x.id===tr.dataset.t);
     const fill=(keepM,keepE)=>{const prov=tr.querySelector("[data-f=p]").value,ms=tr.querySelector("[data-f=m]"),es=tr.querySelector("[data-f=e]"),c=(CAT||{})[prov];
       if(!prov||!c){ms.innerHTML="<option value=''>–</option>";es.innerHTML="<option value=''>–</option>";ms.disabled=es.disabled=true;return}
       ms.disabled=false;ms.innerHTML=selOpts(c.models,keepM||defaultModel(prov),"");const ef=effortsFor(prov,ms.value);
       if(!ef.length){es.innerHTML="<option value=''>default</option>";es.disabled=true}else{es.disabled=false;es.innerHTML=selOpts(ef.map(x=>({id:x,label:x})),keepE||"",'<option value="">default</option>')}};
     fill(k.rec.model,k.rec.effort);
     const save=async()=>{const prov=tr.querySelector("[data-f=p]").value;await post("/api/task/recommend",{task:k.id,provider:prov,model:prov?tr.querySelector("[data-f=m]").value:"",effort:prov?tr.querySelector("[data-f=e]").value:""});if(onchange)onchange()};
-    tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save})}
+    tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save;
+    tr.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;let r;
+      if(a==="approve"){if(!confirm("Mark "+k.id+" as OK?"+NL+NL+"This ticks your own check on the task and finishes it. You are the one saying it is fine."))return;r=await post("/api/task/approve",{task:k.id})}
+      else if(a==="changes"){const note=prompt("What should be fixed or changed in "+k.id+"?"+NL+"Be specific: the relay turns this into a check the AI must pass.");if(!note)return;r=await post("/api/task/changes",{task:k.id,note})}
+      else{r=await post("/api/task/next",{task:k.id});if(r.ok)alert(k.id+" will be built next (when the relay picks its next task).")}
+      if(!r.ok){alert(r.error);return}refresh();tick()})})}
 async function stepModels(){
   $("#step").innerHTML=`<div class="card"><h3>4. Which AI builds what</h3>
     <div class="mute">The planner suggested an AI and a reasoning level for every task, from the AIs you have ready: simple tasks get a cheaper or free model, hard ones the strongest. You do not need to change anything. If you change one, only that task changes.</div>
@@ -386,7 +425,32 @@ async function stepStart(){
 function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart][STEP]()}
 
 /* ------------------------------------------------------------ dashboard */
-function dashInit(){tick();drawDashTools();loadSettings();taskTable("#dashtasks")}
+let TAB="overview",TT={filter:"todo",q:"",limit:40,t:null};
+function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.tab===n));["overview","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
+  if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();loadSettings()}}
+function dashInit(){tick();showTab(TAB)}
+function recText(r){return r&&r.provider?(r.provider+(r.model?" "+r.model.replace(/^opencode\//,""):"")+(r.effort?" · "+r.effort:"")):"follows the setting"}
+function renderNextTasks(s){const q=s.queue;if(!q)return;
+  const own=WZ&&WZ.project&&WZ.project.script==="relay.sh"?'<div class="mute small" style="margin-top:6px">This project picks its tasks from its own board, so the real order can differ from this list (it is by task number).</div>':"";
+  $("#nexttasks").innerHTML=(q.next.length?q.next.map(k=>`<div class="tool" style="padding:7px 0"><span style="min-width:46px"><b>${esc(k.id)}</b></span><span style="flex:1;min-width:160px">${esc(k.title)}${k.current?' <span class="tag" style="background:var(--acc)">building now</span>':""}</span><span class="mute small" style="min-width:130px">${esc(recText(k.rec))}</span><span style="width:64px">${bar(k.completion,"task")}</span></div>`).join(""):'<div class="mute">Nothing left to do.</div>')+
+    `<div class="row small mute" style="margin-top:10px"><span>${q.doneCount} done · ${q.todoCount} to do · ${q.waitingCount} waiting for you</span><a href="#" id="seeall">See all ${q.total} tasks →</a></div>`+own;
+  const sa=$("#seeall");if(sa)sa.onclick=e=>{e.preventDefault();showTab("tasks")};
+  const tb=document.querySelector('[data-tab=tasks]');if(tb)tb.textContent="Tasks"+(q.waitingCount?" ("+q.waitingCount+" to review)":"")}
+const CATS=[["review","Needs your review"],["progress","In progress"],["new","Not started"],["done","Done"],["todo","To do (all)"],["all","All"]];
+function catOf(k,cur){if(k.state==="done")return"done";if(k.state==="owner")return"review";if(k.id===cur)return"building";return k.completion>0?"progress":"new"}
+async function drawTasksTab(){
+  const res=await get("/api/tasks"),cur=(WZ&&WZ.project&&WZ.project.running)?res.current:"",counts={review:0,progress:0,new:0,done:0,building:0};res.tasks.forEach(k=>counts[catOf(k,cur)]++);
+  if(!TT.touched)TT.filter=counts.review?"review":"todo";
+  const chip=(v,label,n)=>`<button class="chip ${TT.filter===v?"on":""}" data-f="${v}">${label} <b>${n}</b></button>`;
+  $("#tab-tasks").innerHTML=`<div class="card">
+    <div class="row2" style="margin-bottom:10px">${chip("review","Needs your review",counts.review)}${chip("progress","In progress",counts.progress+counts.building)}${chip("new","Not started",counts.new)}${chip("done","Done",counts.done)}${chip("all","All",res.tasks.length)}</div>
+    <div class="row2" style="margin-bottom:10px"><input id="tt_q" size="28" placeholder="Search tasks" value="${esc(TT.q)}"><span class="mute small" id="tt_count"></span></div>
+    <div class="mute small" style="margin-bottom:8px">${res.actions?"<b>Needs your review</b> = the AI finished every automatic check and only your own check is left. <b>Looks good</b> marks it done; <b>Needs changes</b> reopens it with your note and the relay builds the fix next. <b>Do next</b> moves a task to the front.":"The status here comes from the task files. This project keeps its live status and its reviews in its own board, so the review buttons are not available here."}</div>
+    <div id="tasktable">loading…</div></div>`;
+  document.querySelectorAll("#tab-tasks .chip").forEach(c=>c.onclick=()=>{TT.filter=c.dataset.f;TT.touched=true;TT.limit=40;drawTasksTab()});
+  $("#tt_q").oninput=e=>{TT.q=e.target.value;TT.limit=40;clearTimeout(TT.t);TT.t=setTimeout(drawTable,250)};
+  drawTable(res)}
+function drawTable(data){taskTable("#tasktable",null,{filter:TT.filter,q:TT.q,limit:TT.limit,count:"#tt_count",data:data&&data.tasks?data:null,more:()=>{TT.limit+=40;drawTable()}})}
 async function drawDashTools(){SETUP=await get("/api/setup");$("#dashtools").innerHTML=SETUP.tools.map(toolRow).join("");wireToolButtons($("#dashtools"));
   if(!$("#ca_name")){$("#customarea").innerHTML='<details style="margin-top:8px"><summary><b>Add another AI</b></summary><div id="customarea2"></div></details>';renderCustom("#customarea2")}}
 const REQ_TEXT={
@@ -440,7 +504,7 @@ function render(s){
   $("#queue").textContent=s.ownerQueue.length?`${s.ownerQueue.length} tasks: ${s.ownerQueue.join(" ")}`:"nothing waiting";
   $("#digestlink").innerHTML=s.digest?'<a href="/digest" target="_blank">open the review digest</a>':"";
   $("#idle").innerHTML=s.idleChores.map(t=>`<li>${esc(t)}</li>`).join("")||'<li class="mute">none run yet (they run while every AI is out of usage)</li>'}
-async function tick(){if(MODE!=="dash")return;try{render(await get("/api/state"));WZ=await get("/api/wizard");headerButtons()}catch(e){$("#status").textContent="NO DATA";$("#status").className="pill stop"}}
+async function tick(){if(MODE!=="dash")return;try{const st=await get("/api/state");WZ=await get("/api/wizard");render(st);renderNextTasks(st);headerButtons()}catch(e){$("#status").textContent="NO DATA";$("#status").className="pill stop"}}
 
 /* ------------------------------------------------------------ settings (dashboard) */
 const ROLES=[["dispatcher","Dispatcher (picks tasks)"],["builder","Builder"],["reviewer","Reviewer"],["cleaner","Cleaner (optional)"]];
@@ -483,7 +547,7 @@ async function saveSettings(){
   if(j.saved)loadSettings()}
 
 /* ------------------------------------------------------------ header buttons and timers */
-$("#setsave").onclick=saveSettings;$("#setreload").onclick=loadSettings;
+$("#setsave").onclick=saveSettings;$("#setreload").onclick=loadSettings;document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 $("#btnstart").onclick=async()=>{const r=await post("/api/relay/start");alert(r.ok?r.message:r.error);setTimeout(tick,3000)};
 $("#btnstop").onclick=async()=>{if(!confirm("Stop the relay now?"+NL+NL+"The task being built is interrupted. Work already committed is kept, and it starts fresh next time."))return;
   const r=await post("/api/relay/stop");alert(r.ok?"Stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")));setTimeout(tick,1500)};

@@ -197,13 +197,17 @@ def start_background(project, script):
     proj = pathlib.Path(project)
     if IS_WIN:
         ps1 = proj / "relay-awake.ps1"
-        subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(ps1), "-Script", script, "-NoDashboard"],
-                         cwd=str(proj), creationflags=NO_WINDOW)
+        try: knows_script = "$Script" in ps1.read_text(encoding="utf-8", errors="replace")
+        except OSError: knows_script = False
+        # the app has no console, so give the relay real handles: without them every program the tests start fails with "The handle is invalid"
+        out = open(proj / "relay-console.log", "ab"); err = open(proj / "relay-console.err", "ab")
+        subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(ps1)] + (["-Script", script] if knows_script else []) + ["-NoDashboard"],
+                         cwd=str(proj), creationflags=NO_WINDOW, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
         return
     inner = ["bash", "./" + script, str(proj)]
     if shutil.which("systemd-inhibit"): inner = ["systemd-inhibit", "--what=sleep:idle", "--why=Agent Relay is working"] + inner
     log = open(proj / "relay-console.log", "ab")
-    subprocess.Popen(inner, cwd=str(proj), stdout=log, stderr=log, start_new_session=True)
+    subprocess.Popen(inner, cwd=str(proj), stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
 
 
 def pick_file(title="Choose a file"):

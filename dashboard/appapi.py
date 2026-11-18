@@ -13,7 +13,7 @@ NO_WINDOW = osops.NO_WINDOW
 APPDATA = (pathlib.Path(os.environ["APPDATA"]) if IS_WIN and os.environ.get("APPDATA") else pathlib.Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))) / "AgentRelay"
 RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-pick.py", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
 GITIGNORE = ("relay.log", "relay-tests.log", "relay-live-*.log", "relay-live-*.start", "relay-console.log", "relay-console.err", ".relay.lock/",
-             "relay.settings.json", "relay.providers.json", "relay-requests/", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
+             "relay.settings.json", "relay.providers.json", "relay-requests/", "relay-priority.txt", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
              "relay-idle-*.stamp", "relay-idle-*.log", "relay-commit.txt", "CURRENT_TASK.md", "REVIEW.md", "OWNER-REVIEW-DIGEST.md")
 KNOWN_PROVIDERS = ("claude", "codex", "copilot", "opencode")
 
@@ -337,6 +337,8 @@ def pick_folder(title="Choose a folder"):
 
 
 # ---------------------------------------------------------------- task recommendations (which AI, which reasoning, per task)
+GATE_LINE = re.compile(r"^\s*-\s*\[( |x|X)\]\s*(.*)$")
+HUMAN_GATE = re.compile(r"^\**\s*(human|owner)\b", re.I)
 REC_LINE = re.compile(r"^\s*recommended ai:\s*(.*)$", re.I)
 EFFORT_WORD = re.compile(r"\b(none|minimal|low|medium|high|xhigh|max|ultra)\b\s+reasoning", re.I)
 
@@ -367,7 +369,13 @@ def list_tasks(project):
         title = lines[0].lstrip("# ").strip() if lines else f.stem
         status = next((l for l in lines[:6] if l.startswith("Status:")), "")
         rec = next((parse_rec(m.group(1)) for l in lines[:14] for m in [REC_LINE.match(l)] if m), None)
-        out.append({"id": f.stem, "title": title, "status": status, "rec": rec or {"provider": "", "model": "", "effort": "", "raw": ""}})
+        gates = [GATE_LINE.match(l) for l in lines]; gates = [g for g in gates if g]
+        human = [g for g in gates if HUMAN_GATE.match(g.group(2).strip())]; auto = [g for g in gates if g not in human]
+        done_n = sum(1 for g in gates if g.group(1) != " ")
+        open_auto = sum(1 for g in auto if g.group(1) == " "); open_human = sum(1 for g in human if g.group(1) == " ")
+        state = "done" if (gates and not open_auto and not open_human) or re.match(r"(?i)^status:\s*done\b", status) else ("owner" if gates and not open_auto else "todo")
+        out.append({"id": f.stem, "title": title, "status": status, "rec": rec or {"provider": "", "model": "", "effort": "", "raw": ""},
+                    "state": state, "gates": len(gates), "gatesDone": done_n, "completion": round(100 * done_n / len(gates)) if gates else 0})
     return out
 
 
@@ -416,3 +424,114 @@ def decide_request(project, rid, decision, note=""):
     r["decidedAt"] = time.strftime("%Y-%m-%d %H:%M:%S"); r["note"] = (note or "")[:300]; r["executed"] = False; r["decidedBy"] = "you"
     with open(f, "w", encoding="utf-8", newline="\n") as fh: json.dump(r, fh, indent=1)
     return {"ok": True, "status": r["status"]}
+
+
+def next_tasks(project, n=5):
+    """The first n tasks still to do, in task order, with the one being built right now first. Tasks parked for the person (PLAYTEST_QUEUE.md) are marked, not hidden."""
+    p = pathlib.Path(project)
+    tasks = list_tasks(p)
+    current = ""
+    try:
+        cur = (p / "CURRENT_TASK.md").read_text(encoding="utf-8", errors="replace").splitlines()
+        m = re.match(r"(T\d+[a-z]?)", cur[1].strip()) if len(cur) > 1 else None
+        current = m.group(1) if m else ""
+    except OSError:
+        pass
+    parked = set()
+    q = p / "PLAYTEST_QUEUE.md"
+    if q.exists():
+        for line in q.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"^(T\d+[a-z]?)\b", line)
+            if m: parked.add(m.group(1))
+    todo = [t for t in tasks if t["state"] == "todo" and t["id"] not in parked]
+    todo.sort(key=lambda t: (t["id"] != current,))           # stable: the current task first, the rest keep task order
+    out = []
+    for t in todo[:n]:
+        out.append({"id": t["id"], "title": re.sub(r"^T\d+[a-z]?\s*[-\u2014]\s*", "", t["title"]), "completion": t["completion"], "rec": t["rec"], "current": t["id"] == current})
+    return {"next": out, "current": current, "todoCount": len(todo), "total": len(tasks), "doneCount": sum(1 for t in tasks if t["state"] == "done"),
+            "waitingCount": sum(1 for t in tasks if t["state"] == "owner" or t["id"] in parked)}
+
+
+# ---------------------------------------------------------------- the person's actions on a task (task-file projects only)
+def _task_file(project, task_id):
+    if not re.fullmatch(r"T\d+[a-z]?", task_id or ""): return None
+    f = pathlib.Path(project) / "tasks" / (task_id + ".md")
+    return f if f.exists() else None
+
+
+def _status_line(gates_done, gates_all, open_auto, open_human, words=None):
+    pct = round(100 * gates_done / gates_all) if gates_all else 0
+    if words: label = words
+    elif gates_all and not open_auto and not open_human: label = "Done"
+    elif not open_auto: label = "Waiting for you"
+    else: label = "In progress"
+    return "Status: %s | Completion: %d%% (%d/%d gates)" % (label, pct, gates_done, gates_all)
+
+
+def _rewrite_status(lines):
+    gates = [GATE_LINE.match(l) for l in lines]; gates = [g for g in gates if g]
+    human = [g for g in gates if HUMAN_GATE.match(g.group(2).strip())]
+    open_auto = sum(1 for g in gates if g not in human and g.group(1) == " "); open_human = sum(1 for g in human if g.group(1) == " ")
+    done_n = sum(1 for g in gates if g.group(1) != " ")
+    new = _status_line(done_n, len(gates), open_auto, open_human)
+    for i, l in enumerate(lines[:8]):
+        if l.startswith("Status:"): lines[i] = new; return
+    lines.insert(1, new)
+
+
+def _after_edit(project, task_id, message):
+    """The relay commits the task files itself between rounds; when it is not running, commit here so the project stays clean."""
+    if not relay_running(project):
+        _commit(pathlib.Path(project), message, ["tasks/%s.md" % task_id])
+
+
+def queue_next(project, task_id):
+    """Put a task at the top of the person's 'do this next' list (relay-priority.txt)."""
+    if not _task_file(project, task_id): return {"ok": False, "error": "unknown task"}
+    pf = pathlib.Path(project) / "relay-priority.txt"
+    ids = [l.strip() for l in pf.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()] if pf.exists() else []
+    ids = [task_id] + [i for i in ids if i != task_id]
+    with open(pf, "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(ids) + "\n")
+    return {"ok": True, "queue": ids}
+
+
+def approve_task(project, task_id):
+    """The person says the task is fine: tick its HUMAN gate(s). Only possible when the AI has finished every AUTO gate."""
+    f = _task_file(project, task_id)
+    if not f: return {"ok": False, "error": "unknown task"}
+    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    gates = [(i, GATE_LINE.match(l)) for i, l in enumerate(lines)]; gates = [(i, g) for i, g in gates if g]
+    auto_open = [g for i, g in gates if not HUMAN_GATE.match(g.group(2).strip()) and g.group(1) == " "]
+    if auto_open: return {"ok": False, "error": "The AI has not finished this task yet (%d automatic check(s) still open)." % len(auto_open)}
+    ticked = 0
+    for i, g in gates:
+        if HUMAN_GATE.match(g.group(2).strip()) and g.group(1) == " ": lines[i] = lines[i].replace("[ ]", "[x]", 1); ticked += 1
+    if not ticked: return {"ok": False, "error": "There is nothing waiting for you in this task."}
+    _rewrite_status(lines)
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    if not any(l.strip() == "## Review log" for l in lines): lines += ["", "## Review log"]
+    lines.append("Approved by you in the app on %s." % stamp)
+    with open(f, "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(lines) + "\n")
+    _after_edit(project, task_id, "%s: approved by you in the app" % task_id)
+    return {"ok": True}
+
+
+def request_changes(project, task_id, note):
+    """The person wants changes: add their note as a new automatic gate (so the AI must address it and the reviewer checks it), and do the task next."""
+    f = _task_file(project, task_id)
+    note = " ".join((note or "").split())
+    if not f: return {"ok": False, "error": "unknown task"}
+    if len(note) < 3: return {"ok": False, "error": "Say what should be changed."}
+    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    last = max((i for i, l in enumerate(lines) if GATE_LINE.match(l)), default=None)
+    gate = "- [ ] AUTO: Fix what the owner asked for and prove it with a check: %s" % note[:300]
+    if last is None: return {"ok": False, "error": "This task has no gates to extend."}
+    lines.insert(last + 1, gate)
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    if not any(l.strip() == "## Owner feedback" for l in lines): lines += ["", "## Owner feedback"]
+    lines.append("- %s: %s" % (stamp, note))
+    _rewrite_status(lines)
+    open(f, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+    _after_edit(project, task_id, "%s: changes asked for by you in the app" % task_id)
+    queue_next(project, task_id)
+    return {"ok": True}
