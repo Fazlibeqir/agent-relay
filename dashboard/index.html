@@ -128,8 +128,8 @@ function usableAIs(){return ((SETUP||{}).tools||[]).filter(t=>t.found&&(t.signed
 function defaultModel(p){return p==="claude"?"claude-sonnet-5-5":p==="codex"?"gpt-6.1-sol":p==="opencode"?"opencode/deepseek-v4.1-flash-free":""}
 
 /* ------------------------------------------------------------ boot */
-function brandHtml(b){const mark=b&&b.fluxLogo?`<a class="fb" data-ext="https://flux.mk" title="flux.mk"><img src="${b.fluxLogo}" alt="Driven by Flux"></a>`:`<span class="dv"></span><span>Driven by<b>FLUX</b></span>`;
-  return mark+`<span class="dv"></span><a data-ext="https://flux.mk">flux.mk</a>`}
+function brandHtml(b){return b&&b.fluxLogo?`<a class="fb" data-ext="https://flux.mk" title="flux.mk"><img src="${b.fluxLogo}" alt="Driven by Flux"></a>`
+  :`<a data-ext="https://flux.mk" style="display:inline-flex;gap:10px;align-items:center"><span>Driven by<b>FLUX</b></span></a>`}
 async function showBrand(){let b=null;try{b=await get("/api/brand")}catch(e){}const h=brandHtml(b);["splashby","footby"].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=h});
   document.querySelectorAll("[data-ext]").forEach(a=>a.onclick=e=>{e.preventDefault();post("/api/open-external",{url:a.dataset.ext})})}
 showBrand();

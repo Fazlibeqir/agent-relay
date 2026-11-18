@@ -27,12 +27,12 @@ svg{animation:rise .8s ease both}.n{font-size:24px;letter-spacing:.18em;font-wei
 def splash_html():
     try: svg = (ASSETS / "agent-relay.svg").read_text(encoding="utf-8").replace('width="256" height="256"', 'width="104" height="104"')
     except OSError: svg = ""
-    by = '<span class="dv"></span><span>Driven by<b>FLUX</b></span><span class="dv"></span><a>flux.mk</a>'
+    by = '<span>Driven by<b>FLUX</b></span>'
     for ext, mime in (("svg", "image/svg+xml"), ("png", "image/png")):          # the real Flux logo, if it has been dropped into assets/
         f = ASSETS / ("flux-logo." + ext)
         if f.is_file():
             import base64
-            by = '<span class="fb"><img src="data:%s;base64,%s"></span><span class="dv"></span><a>flux.mk</a>' % (mime, base64.b64encode(f.read_bytes()).decode("ascii")); break
+            by = '<span class="fb"><img src="data:%s;base64,%s"></span>' % (mime, base64.b64encode(f.read_bytes()).decode("ascii")); break
     return SPLASH.replace("@@SVG@@", svg).replace("@@BY@@", by)
 
 
