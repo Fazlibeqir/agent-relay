@@ -569,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
                 if need_project(): return
                 return reply(appapi.set_task_rec(Handler.relay, body.get("task", ""), body.get("provider", ""), body.get("model", ""), body.get("effort", "")))
             if need_project(): return
-            if path == "/api/relay/start": return reply(appapi.start_relay(Handler.relay))
+            if path == "/api/relay/start": return reply(appapi.start_relay(Handler.relay, bool(body.get("saveAside"))))
             if path == "/api/relay/stop": return reply(appapi.stop_relay(Handler.relay))
             if path == "/api/settings":
                 ok, problems = save_settings(self.relay, body)

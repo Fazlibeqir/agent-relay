@@ -451,7 +451,7 @@ async function stepStart(){
     </div>
     <div class="mute" style="margin-top:12px">When you press Start the relay runs the tests, then works through the tasks one at a time by itself. It never pushes or merges, never ticks a gate that needs your judgement, and stops by itself when everything is done or waiting for you. You can watch it here and stop it any time.</div>
     <div class="nav"><button onclick="go(4)">Back</button><button class="go" id="gostart">Start the relay</button></div></div>`;
-  $("#gostart").onclick=async()=>{const r=await post("/api/relay/start");if(!r.ok){alert(r.error);return}
+  $("#gostart").onclick=async()=>{const r=await startRelay();if(!r.ok){if(!r.needsDecision)alert(r.error);return}
     MODE="dash";WZ=await get("/api/wizard");apply();setTimeout(tick,3000)}}
 
 function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart][STEP]()}
@@ -581,7 +581,13 @@ async function saveSettings(){
 
 /* ------------------------------------------------------------ header buttons and timers */
 $("#setsave").onclick=saveSettings;$("#setreload").onclick=loadSettings;document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
-$("#btnstart").onclick=async()=>{const r=await post("/api/relay/start");alert(r.ok?r.message:r.error);setTimeout(tick,3000)};
+async function startRelay(){let r=await post("/api/relay/start");
+  if(!r.ok&&r.needsDecision==="unfinished"){
+    const list=(r.files||[]).slice(0,8).join(NL)+(r.count>8?NL+"... and "+(r.count-8)+" more":"");
+    if(!confirm(r.error+NL+NL+list+NL+NL+"OK: save these changes in a folder next to the project (nothing is lost), clean the project, and start."+NL+"Cancel: do nothing, so you can commit them yourself first."))return r;
+    r=await post("/api/relay/start",{saveAside:true})}
+  return r}
+$("#btnstart").onclick=async()=>{const r=await startRelay();if(!r.needsDecision)alert(r.ok?r.message:r.error);setTimeout(tick,3000)};
 $("#btnstop").onclick=async()=>{if(!confirm("Stop the relay now?"+NL+NL+"The task being built is interrupted. Work already committed is kept, and it starts fresh next time."))return;
   const r=await post("/api/relay/stop");alert(r.ok?"Stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")));setTimeout(tick,1500)};
 $("#btnnew").onclick=async()=>{if(!confirm("Start a new project?"+NL+NL+"The current project and its relay are not touched; this page just moves on to a new one."))return;

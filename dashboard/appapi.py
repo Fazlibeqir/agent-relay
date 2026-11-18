@@ -308,13 +308,70 @@ def relay_tree(relay):
     return sorted(tree), roots
 
 
-def start_relay(relay):
+# Files the relay itself and common tools create; they never count as unfinished work.
+NOT_WORK = re.compile(r"(^|/)(relay[^/]*|CURRENT_TASK\.md|REVIEW\.md|PLAYTEST_QUEUE[^/]*|OWNER-REQUESTS\.[a-z]+|graphify-out|\.agent-relay[^/]*|\.relay[^/]*)(/|$)")
+
+
+def unfinished_work(r):
+    """Uncommitted changes in the project (what a stopped run left half-done). The relay refuses to start on top of them. -> [(status, path)]"""
+    if not (pathlib.Path(r) / ".git").exists(): return []
+    out = _git(r, "status", "--porcelain", "-uall")
+    rows = []
+    for line in out.stdout.splitlines():
+        if len(line) < 4: continue
+        st, path = line[:2], line[3:].strip().strip('"')
+        if NOT_WORK.search(path): continue
+        rows.append((st, path))
+    return rows
+
+
+def save_work_aside(r, rows):
+    """Keep the unfinished changes in a folder next to the project (a patch for edited files, copies of new files), then restore the project to its last commit. -> (folder, error)"""
+    r = pathlib.Path(r)
+    if any(" -> " in p for _, p in rows): return None, "A file was renamed in the unfinished work; save or commit it by hand first."
+    dest = r.parent / "relay-saved-work" / ("%s-%s" % (r.name, time.strftime("%Y%m%d-%H%M%S")))
+    try: dest.mkdir(parents=True, exist_ok=True)
+    except OSError as e: return None, "Could not create %s (%s)." % (dest, e)
+    new = [p for st, p in rows if st == "??" or st[0] == "A"]
+    tracked = [p for st, p in rows if p not in new]
+    if tracked:
+        d = _git(r, "diff", "HEAD", "--binary", "--", *tracked)
+        if d.returncode != 0: return None, "git diff failed: " + (d.stderr or "").strip()[:200]
+        (dest / "unfinished-changes.patch").write_bytes(d.stdout.encode("utf-8"))
+    for p in new:
+        src = r / p
+        if src.is_file():
+            tgt = dest / "new-files" / p; tgt.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(src, tgt)
+    (dest / "README.txt").write_text("Saved by Agent Relay before starting a run.\nunfinished-changes.patch: apply with  git apply <this file>  (from the project folder).\nnew-files/: files that were not committed yet; copy them back to the same place.\n", encoding="utf-8")
+    if tracked and not (dest / "unfinished-changes.patch").exists(): return None, "Could not write the saved copy; nothing was changed."
+    for p in new:
+        if (_git(r, "ls-files", "--error-unmatch", p).returncode == 0): _git(r, "rm", "-f", "-q", "--", p)
+        else:
+            try: (r / p).unlink()
+            except OSError: pass
+    if tracked:
+        c = _git(r, "checkout", "HEAD", "--", *tracked)
+        if c.returncode != 0: return str(dest), "Saved a copy, but restoring failed: " + (c.stderr or "").strip()[:200]
+    return str(dest), ""
+
+
+def start_relay(relay, save_aside=False):
     r = pathlib.Path(relay)
     script = relay_script(r)
     if not script: return {"ok": False, "error": "This project has no plan yet (no tasks and relay.project.json). Finish the setup steps first."}
     if relay_running(r): return {"ok": False, "error": "A relay is already running here (the lock exists)."}
+    rows = unfinished_work(r)
+    saved = ""
+    if rows:
+        if not save_aside:
+            return {"ok": False, "needsDecision": "unfinished", "files": [p for _, p in rows][:40], "count": len(rows),
+                    "error": "A previous run left %d unfinished file change(s) in the project, and a new run cannot start on top of them." % len(rows)}
+        saved, err = save_work_aside(r, rows)
+        if err: return {"ok": False, "error": err, "saved": saved}
     osops.start_background(r, script)
-    return {"ok": True, "message": "Starting. It runs the project's tests first, then works through the tasks by itself."}
+    msg = "Starting. It runs the project's tests first, then works through the tasks by itself."
+    if saved: msg = "Your unfinished changes are saved in " + saved + ". " + msg
+    return {"ok": True, "message": msg, "saved": saved}
 
 
 def stop_relay(relay):
