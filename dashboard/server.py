@@ -630,7 +630,7 @@ def main():
     Handler.providers = json.loads(pathlib.Path(a.providers).read_text(encoding="utf-8"))["providers"]
     srv = ThreadingHTTPServer((a.host, a.port), Handler); Handler.srv = srv
     print(f"Agent relay dashboard for {Handler.relay}\n  http://{a.host}:{a.port}/   (Ctrl+C to stop)")
-    if a.open:
+    if a.open and not os.environ.get("AGENT_RELAY_NO_BROWSER"):
         import webbrowser; webbrowser.open(f"http://{a.host}:{a.port}/")
     try: srv.serve_forever()
     except KeyboardInterrupt: pass

@@ -55,6 +55,12 @@ tick the box that hands those over. Everything the judge decides is listed under
 
 This is a safety net, not a sandbox: the AIs run with your permissions and could in principle ignore the rules. Do not keep secrets in a folder you point an AI at if you cannot afford a leak.
 
+## Download
+
+Ready-made builds for Windows and Linux are on the [Releases page](../../releases): `AgentRelay-windows-x64.exe` (double-click it) and `AgentRelay-linux-x86_64.tar.gz`
+(`tar -xzf` it and run `./AgentRelay`). They are built by a GitHub Actions workflow (`.github/workflows/release.yml`) that starts each build to check it comes up before publishing.
+To make a release, push a tag such as `v0.1.0`.
+
 ## Run it
 
 | | Windows | Linux |

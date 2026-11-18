@@ -1,0 +1,106 @@
+name: Release
+
+# Builds the app for Windows and Linux, starts each build to check it comes up, and publishes a release when a tag like v0.1.0 is pushed.
+# Run it by hand (Actions tab, Run workflow) to build without releasing: the files are kept as workflow artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build AgentRelay.exe
+        shell: pwsh
+        run: ./build-app.ps1
+      - name: Check the app starts
+        shell: bash
+        run: |
+          AGENT_RELAY_NO_BROWSER=1 ./dist/AgentRelay.exe --port 8791 &
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fs http://127.0.0.1:8791/api/env > env.json; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { echo "the app did not start"; exit 1; }
+          cat env.json | head -c 300; echo
+          curl -fs http://127.0.0.1:8791/api/wizard | head -c 200; echo
+          curl -s -X POST http://127.0.0.1:8791/api/quit -H 'Content-Type: application/json' -d '{}' || true
+      - name: Name the file
+        shell: bash
+        run: |
+          mkdir out
+          cp dist/AgentRelay.exe out/AgentRelay-windows-x64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Libraries for the folder picker
+        run: sudo apt-get update && sudo apt-get install -y tk-dev || true
+      - name: Build AgentRelay
+        run: bash ./build-app.sh
+      - name: Check the app starts
+        run: |
+          AGENT_RELAY_NO_BROWSER=1 ./dist/AgentRelay --port 8791 &
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fs http://127.0.0.1:8791/api/env > env.json; then ok=1; break; fi
+            sleep 2
+          done
+          [ "$ok" = 1 ] || { echo "the app did not start"; exit 1; }
+          cat env.json | head -c 300; echo
+          curl -fs http://127.0.0.1:8791/api/wizard | head -c 200; echo
+          curl -s -X POST http://127.0.0.1:8791/api/quit -H 'Content-Type: application/json' -d '{}' || true
+      - name: Package
+        run: |
+          mkdir out
+          chmod +x dist/AgentRelay
+          tar -czf out/AgentRelay-linux-x86_64.tar.gz -C dist AgentRelay
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+
+  release:
+    needs: [windows, linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Checksums
+        run: cd out && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Notes
+        run: |
+          cat > notes.md <<'EOF'
+          Agent Relay turns an idea (or a project you already have) into a plan and builds it task by task with several AI tools, while you watch.
+
+          **Windows:** download `AgentRelay-windows-x64.exe` and double-click it. Windows SmartScreen may warn once because the file is not code-signed (More info, then Run anyway).
+
+          **Linux (x86_64):** download `AgentRelay-linux-x86_64.tar.gz`, then `tar -xzf AgentRelay-linux-x86_64.tar.gz && ./AgentRelay`.
+          The Linux build is new: it starts and answers on a clean Linux machine in the release check, but its terminals, package installs and relay start have not been used by a person yet. Please report problems.
+
+          The app opens in your browser at http://127.0.0.1:8765/. You need git and Python 3 installed; the app helps you install the AI tools and sign in. `SHA256SUMS.txt` has the checksums.
+          EOF
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --title "Agent Relay ${GITHUB_REF_NAME#v}" --notes-file notes.md
