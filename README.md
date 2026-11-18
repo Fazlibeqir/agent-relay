@@ -80,7 +80,6 @@ dashboard/           server.py (API), index.html (the whole UI), appapi.py (acti
                      planner.py (idea -> proposal -> plan), customai.py (add other AIs), providers.json (the cards)
 template/            what gets copied into every new project: relay-files.sh (the loop), relay-lib.sh, relay-pick.py (task picker),
                      relay-settings.py (roles and models), relay-idle.sh, relay-digest.py, relay-awake.ps1 (Windows launcher)
-examples/project-x/  a bigger, project-specific relay kept as an example (not installed anywhere)
 relay.settings.example.json   the default roles for a new project
 ```
 
