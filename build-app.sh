@@ -8,7 +8,7 @@ K="$(pwd)"    # absolute paths: PyInstaller resolves relative ones from the spec
 .build/venv/bin/python -m pip install --quiet --disable-pip-version-check pyinstaller "pywebview[qt]"
 rm -rf dist/AgentRelay
 .build/venv/bin/python -m PyInstaller --noconfirm --onedir --name AgentRelay --distpath dist --workpath .build/work --specpath .build \
-  --paths dashboard --add-data "$K/dashboard/index.html:." --add-data "$K/dashboard/providers.json:." --add-data "$K/template:template" \
+  --paths dashboard --add-data "$K/dashboard/index.html:." --add-data "$K/dashboard/providers.json:." --add-data "$K/dashboard/review.js:." --add-data "$K/template:template" \
   --add-data "$K/relay.settings.example.json:." --add-data "$K/assets:assets" --hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai \
   --hidden-import existing --hidden-import digest --collect-submodules webview --hidden-import webview.platforms.qt agent_relay_app.py
 echo "Built: $(pwd)/dist/AgentRelay/AgentRelay"

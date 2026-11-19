@@ -7,8 +7,8 @@
 File: relay.settings.json next to relay.sh (ignored by git). Missing, unreadable or invalid -> the built-in defaults, which are exactly
 what the relay did before this file existed. Environment variables set in relay.sh (CLAUDE_MODEL, CODEX_MODEL, FALLBACKS, ...) still win.
 
-Roles: dispatcher, builder, reviewer, cleaner. A role set to "none" (or left out) is skipped. Only Claude is verified for dispatcher and
-reviewer (they need task-board access and output the relay can parse): any other provider there needs "experimental": true on the role.
+Roles: dispatcher, builder, reviewer, cleaner. Dispatcher and reviewer can fall back to another installed tool.
+Reviews must use a different model from every builder that worked on the current round.
 """
 import json, os, pathlib, re, sys
 
@@ -22,9 +22,13 @@ DEFAULTS = {
         "cleaner":    {"provider": "none"},
     },
     "fallbackBuilders": ["copilot", "opencode"],
+    "fallbackRoles": {"dispatcher": ["codex", "copilot", "opencode"], "reviewer": ["copilot", "opencode", "codex"]},
     "fallbackMaxPerDay": 10,
     "models": {"copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5"},
     "idleChores": ["backend", "digest"],
+    "capabilities": {p: ["repository", "shell"] for p in PROVIDERS},
+    "limits": {"callsPerTask": 24, "callsPerProviderDay": 100, "failuresPerTask": 3,
+               "sameFailureLimit": 2, "timeoutSeconds": 5400, "idleWarningSeconds": 600},
     # who answers an AI's request for permission: the person ("ask") or an AI judge ("auto"). Secrets and uploads stay with the person unless autoSecrets is on.
     "approvals": {"mode": "ask", "autoSecrets": False, "judge": {"provider": "reviewer", "model": "auto", "effort": "auto"}},
 }
@@ -74,7 +78,16 @@ def load(path):
         cfg["roles"][role] = {**cfg["roles"][role], **val} if val.get("provider", cfg["roles"][role].get("provider")) == cfg["roles"][role].get("provider") else dict(val)
     for k in ("fallbackBuilders", "fallbackMaxPerDay", "idleChores"):
         if k in raw: cfg[k] = raw[k]
+    fallback_roles = raw.get("fallbackRoles")
+    if isinstance(fallback_roles, dict):
+        cfg["fallbackRoles"].update(fallback_roles)
+    elif fallback_roles is not None:
+        problems["errors"].append("fallbackRoles must be an object")
     cfg["models"].update(raw.get("models") or {})
+    for key in ("capabilities", "limits"):
+        if key in raw:
+            if isinstance(raw[key], dict): cfg[key].update(raw[key])
+            else: problems["errors"].append(key + " must be an object")
     ap = raw.get("approvals")
     if isinstance(ap, dict):
         j = ap.get("judge") if isinstance(ap.get("judge"), dict) else {}
@@ -97,8 +110,6 @@ def validate(cfg, problems):
         for key in ("model", "effort"):
             v = r.get(key)
             if v is not None and (not isinstance(v, str) or not SAFE.match(v)): errs.append(f"role {role}: {key} has characters that are not allowed")
-        if role in ("dispatcher", "reviewer") and prov != "claude" and not r.get("experimental"):
-            errs.append(f"role {role}: only Claude is verified here (task-board access and parsable output); set \"experimental\": true to try {prov}")
     for role in ("dispatcher", "builder", "reviewer"):
         if roles[role].get("provider", "none") == "none": errs.append(f"role {role} cannot be none")
     b, rv = roles["builder"], roles["reviewer"]
@@ -108,8 +119,22 @@ def validate(cfg, problems):
     if not isinstance(fb, list) or any(x not in ["copilot", "opencode", "codex"] + cfg.get("_custom", []) for x in fb): errs.append("fallbackBuilders must be a list of copilot / opencode / codex / custom AIs")
     elif b.get("provider") in fb: problems["warnings"].append(f"builder {b.get('provider')} removed from its own fallback chain")
     if not isinstance(cfg["fallbackMaxPerDay"], int) or not 0 <= cfg["fallbackMaxPerDay"] <= 200: errs.append("fallbackMaxPerDay must be 0-200")
+    for role, backups in cfg["fallbackRoles"].items():
+        if role not in ("dispatcher", "reviewer"):
+            errs.append(f"fallbackRoles: unknown role '{role}'")
+        if not isinstance(backups, list) or any(p not in PROVIDERS for p in backups):
+            errs.append(f"fallbackRoles.{role} must list built-in providers")
+        elif len(backups) != len(set(backups)):
+            errs.append(f"fallbackRoles.{role} contains duplicate providers")
     for k, v in cfg["models"].items():
         if not isinstance(v, str) or not SAFE.match(v): errs.append(f"models.{k} has characters that are not allowed")
+    for provider, capabilities in cfg["capabilities"].items():
+        if provider not in list(PROVIDERS) + cfg.get("_custom", []): errs.append("capabilities: unknown provider " + provider)
+        if not isinstance(capabilities, list) or any(not isinstance(c, str) or not SAFE.fullmatch(c) for c in capabilities):
+            errs.append("capabilities." + provider + " must be a list of capability names")
+    for key, value in cfg["limits"].items():
+        if key not in DEFAULTS["limits"] or isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 86400:
+            errs.append("limits." + key + " must be an integer from 1 to 86400")
     ap = cfg["approvals"]
     if ap["mode"] not in ("ask", "auto"): errs.append("approvals.mode must be ask or auto")
     jp = ap["judge"].get("provider", "reviewer")
@@ -140,6 +165,8 @@ def shell(path):
         for k in ("provider", "model", "effort"):
             out.append(f"S_{role.upper()}_{k.upper()}='{r.get(k, '')}'")
     out.append(f"S_FALLBACKS='{' '.join(cfg['fallbackBuilders'])}'")
+    for role in ("dispatcher", "reviewer"):
+        out.append(f"S_{role.upper()}_FALLBACKS='{' '.join(cfg['fallbackRoles'][role])}'")
     out.append(f"S_FALLBACK_MAX='{cfg['fallbackMaxPerDay']}'")
     out.append(f"S_COPILOT_MODEL='{cfg['models']['copilot']}'")
     out.append(f"S_OPENCODE_MODEL='{cfg['models']['opencode']}'")
@@ -152,6 +179,7 @@ def shell(path):
     out.append(f"S_JUDGE_MODEL='{jd.get('model', 'auto')}'")
     out.append(f"S_JUDGE_EFFORT='{jd.get('effort', 'auto')}'")
     out.append(f"S_VALID='{1 if ok else 0}'")
+    out.append(f"S_AGENT_TIMEOUT='{cfg['limits']['timeoutSeconds']}'")
     print("\n".join(out))
 
 

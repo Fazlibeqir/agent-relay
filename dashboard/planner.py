@@ -256,10 +256,19 @@ def start_job(phase, path, found, provider, model, idea="", stack="", suggest=Tr
     else:
         return {"ok": False, "error": "unknown phase"}
     before = _dirty(p) if existing else {}
+    metadata = p / "relay.project.json"
+    try:
+        original_metadata = metadata.read_bytes()
+        local_workspace = json.loads(original_metadata.decode("utf-8-sig")).get("localWorkspace") is True
+    except (OSError, ValueError, AttributeError):
+        local_workspace = False
+    saved_tasks = {f: f.read_bytes() for f in (p / "tasks").glob("T*.md")} if local_workspace and phase in ("propose", "plan") else {}
     jid = uuid.uuid4().hex[:8]
     JOBS[jid] = {"state": "running", "phase": phase, "path": str(p), "started": time.time(), "log": "", "provider": provider, "missing": []}
 
     def work():
+        keep_plan_metadata = False
+        summary = {}
         try:
             e = dict(os.environ); e.update(env)
             r = subprocess.run(cmd, input=prompt, text=True, encoding="utf-8", capture_output=True, cwd=str(p), env=e, timeout=1500, creationflags=NO_WINDOW)
@@ -267,15 +276,34 @@ def start_job(phase, path, found, provider, model, idea="", stack="", suggest=Tr
             missing = [f for f in expect if not (p / f).exists()]
             if phase in ("plan", "import") and not list((p / "tasks").glob("T*.md")): missing.append("tasks/")
             if phase == "recommend" and not any("recommended ai:" in f.read_text(encoding="utf-8", errors="replace").lower() for f in (p / "tasks").glob("T*.md")): missing.append("Recommended AI lines")
+            if local_workspace and phase == "plan" and not missing and r.returncode == 0:
+                generated = json.loads(metadata.read_text(encoding="utf-8-sig"))
+                if not isinstance(generated.get("testCommand"), str) or not generated["testCommand"].strip():
+                    missing.append("the automatic test command")
+                else:
+                    generated["localWorkspace"] = True
+                    metadata.write_text(json.dumps(generated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                    keep_plan_metadata = True
             if existing:
                 guard = _guard(p, before)
                 if guard: out = out + chr(10) + "[guard] " + "; ".join(guard)
                 JOBS[jid]["guard"] = guard
-            JOBS[jid].update(state="done" if not missing and r.returncode == 0 else "failed", log=out, missing=missing, seconds=int(time.time() - JOBS[jid]["started"]))
+            summary = {"state": "done" if not missing and r.returncode == 0 else "failed", "log": out, "missing": missing}
         except subprocess.TimeoutExpired:
-            JOBS[jid].update(state="failed", log="The planner took longer than 25 minutes and was stopped.", missing=expect)
+            summary = {"state": "failed", "log": "The planner took longer than 25 minutes and was stopped.", "missing": expect}
         except Exception as ex:
-            JOBS[jid].update(state="failed", log=str(ex), missing=expect)
+            summary = {"state": "failed", "log": str(ex), "missing": expect}
+        finally:
+            try:
+                for path, contents in saved_tasks.items():
+                    if not path.is_file() or path.read_bytes() != contents:
+                        path.parent.mkdir(exist_ok=True)
+                        path.write_bytes(contents)
+                if local_workspace and phase in ("propose", "plan") and not keep_plan_metadata:
+                    metadata.write_bytes(original_metadata)
+            except OSError as exc:
+                summary.update(state="failed", log=f"Could not restore the saved project tasks: {exc}")
+            JOBS[jid].update(**summary, seconds=int(time.time() - JOBS[jid]["started"]))
     threading.Thread(target=work, daemon=True).start()
     return {"ok": True, "job": jid}
 

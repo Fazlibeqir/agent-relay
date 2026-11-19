@@ -78,6 +78,30 @@ def run_window(url, srv):
         pick = lambda kind: (lambda title: (lambda r: r[0] if r else "")(window.create_file_dialog(kind)))
         osops.DIALOGS["folder"] = pick(folder_kind); osops.DIALOGS["file"] = pick(open_kind)
         server.Handler.on_quit = window.destroy                # the in-page "Quit app" button closes the window
+        if sys.platform.startswith("win"):
+            def show_notification(title, message):
+                from System import Action
+                from System.Drawing import SystemIcons
+                from System.Windows.Forms import NotifyIcon, ToolTipIcon
+
+                def show():
+                    if not hasattr(show_notification, "icon"):
+                        icon = NotifyIcon()
+                        icon.Icon = SystemIcons.Information
+                        icon.Text = "Agent Relay"
+                        icon.BalloonTipShown += lambda *_: setattr(server.Handler, "native_notification_shown_at", time.time())
+                        icon.Visible = True
+                        show_notification.icon = icon
+                    show_notification.icon.ShowBalloonTip(8000, title, message, ToolTipIcon.Info)
+
+                window.native.Invoke(Action(show))
+
+            def clear_notification():
+                if hasattr(show_notification, "icon"):
+                    show_notification.icon.Dispose()
+
+            server.Handler.on_notify = show_notification
+            window.events.closing += clear_notification
 
         def load(win):
             time.sleep(0.9)                                    # let the splash be seen; the page shows the same splash until its first data is in

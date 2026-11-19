@@ -14,6 +14,7 @@ HERE = pathlib.Path(__file__).parent
 import sys
 sys.path.insert(0, str(HERE))
 import appapi
+import reviewmedia
 DEFAULTS = {"BASELINE": 600, "DISPATCH": 360, "BUILD": 900, "SUITE": 600, "REVIEW": 240}
 PAIRS = {("BASELINE", "BASELINE_OK"): "BASELINE", ("DISPATCH", "BUILD"): "DISPATCH", ("BUILD", "SUITE"): "BUILD",
          ("SUITE", "REVIEW"): "SUITE", ("REVIEW", "ROUND_DONE"): "REVIEW"}
@@ -24,9 +25,10 @@ LOG_LINE = re.compile(r"^\[(20\d\d-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$")
 
 def kind_of(m):
     for pat, k in ((r"^running baseline test suite", "BASELINE"), (r"^baseline tests pass", "BASELINE_OK"), (r"^baseline tests FAIL", "STOPPED"),
-                   (r"choosing next task", "DISPATCH"), (r"(Codex|builder) building", "BUILD"),
+                   (r"choosing next task|^role dispatcher running", "DISPATCH"), (r"(Codex|builder) building", "BUILD"),
                    (r"made \d+ commit\(s\); running the full suite", "SUITE"), (r"Claude reviewing|reviewing", "REVIEW"),
                    (r"review done", "ROUND_DONE"), (r"^no task the agents can advance", "IDLE"), (r"hit a usage limit", "LIMIT"),
+                   (r"^role reviewer running", "REVIEW"),
                    (r"out of usage — fallback builder", "FALLBACK"), (r"^dispatcher failed", "DISPATCH_FAIL"),
                    (r"^stalled|^dispatcher wrote no task|^reached MAX_ROUNDS|^uncommitted changes under", "STOPPED")):
         if re.search(pat, m):
@@ -210,8 +212,8 @@ def build_state(relay, providers):
         if m: state["round"], state["task"] = m.group(1), m.group(2)
         m = re.match(r"round (\d+) — choosing", e["msg"])
         if m: state["round"] = m.group(1)
-    pm = {"BASELINE": ("Baseline test suite", "BASELINE"), "DISPATCH": ("Claude picks the next task", "DISPATCH"), "BUILD": ("Building", "BUILD"),
-          "SUITE": ("Full test suite", "SUITE"), "REVIEW": ("Claude reviews", "REVIEW")}
+    pm = {"BASELINE": ("Baseline test suite", "BASELINE"), "DISPATCH": ("Choosing the next task", "DISPATCH"), "BUILD": ("Building", "BUILD"),
+          "SUITE": ("Full test suite", "SUITE"), "REVIEW": ("Reviewing", "REVIEW")}
     if cur:
         k = cur["kind"]
         if k in pm and alive:
@@ -219,10 +221,10 @@ def build_state(relay, providers):
             elapsed = now - cur["t"]
             state["phase"] = {"kind": k, "label": label, "since": cur["t"], "elapsed": elapsed, "estimate": est[ek], "remaining": est[ek] - elapsed}
         elif k == "LIMIT" and alive:
-            m = re.search(r"sleeping (\d+)s(?: \(until about (\d\d:\d\d)\))?", cur["msg"])
+            m = re.search(r"sleeping (\d+)s(?: \((?:until|retry) about (\d\d:\d\d)\))?", cur["msg"])
             secs = int(m.group(1)) if m else 1800
-            state["phase"] = {"kind": "LIMIT", "label": "Waiting for a usage limit to reset", "since": cur["t"], "elapsed": now - cur["t"], "estimate": secs,
-                              "remaining": secs - (now - cur["t"]), "until": m.group(2) if m and m.group(2) else None}
+            state["phase"] = {"kind": "LIMIT", "label": "Waiting to retry available AI tools", "since": cur["t"], "elapsed": now - cur["t"], "estimate": secs,
+                              "remaining": secs - (now - cur["t"]), "retryAt": cur["t"] + secs}
         elif not alive:
             state["phase"] = {"kind": "STOPPED", "label": "Relay stopped", "since": cur["t"], "elapsed": now - cur["t"], "estimate": 0, "remaining": 0}
     order = ["DISPATCH", "BUILD", "SUITE", "REVIEW"]
@@ -230,7 +232,7 @@ def build_state(relay, providers):
         i = order.index(state["phase"]["kind"]); rem = max(0, state["phase"]["remaining"]); nxt = []
         acc = rem
         for k in order[i + 1:]:
-            acc += est[k]; nxt.append({"label": {"BUILD": "Codex builds", "SUITE": "Full test suite", "REVIEW": "Claude reviews"}[k], "inSeconds": acc})
+            acc += est[k]; nxt.append({"label": {"BUILD": "Building", "SUITE": "Full test suite", "REVIEW": "Reviewing"}[k], "inSeconds": acc})
         state["next"] = nxt; state["roundDoneIn"] = acc
     # what each agent runs on
     claude_model = ""; codex_model = ""
@@ -242,8 +244,12 @@ def build_state(relay, providers):
     live = {pr["id"]: (parse_claude_live(relay) if pr["id"] == "claude" else parse_codex_like_live(relay, pr["id"])) for pr in providers}
     limits = {}
     for e in ev[-400:]:
-        m = re.match(r"(\w+) hit a usage limit — sleeping (\d+)s(?: \(until about (\d\d:\d\d)\))?", e["msg"])
-        if m: limits[m.group(1)] = {"at": e["t"], "ts": e["ts"], "until": m.group(3)}
+        m = re.match(r"(\w+) hit a usage limit — sleeping (\d+)s", e["msg"])
+        if m: limits[m.group(1)] = {"at": e["t"], "ts": e["ts"], "retryAt": e["t"] + int(m.group(2))}
+    active_roles = {}
+    for e in run:
+        m = re.match(r"role (dispatcher|reviewer) running ([\w-]+) (\S+)", e["msg"])
+        if m: active_roles[m.group(2)] = (m.group(1), m.group(3))
     fb = fallback_counts(relay)
     state["providers"] = []
     for p in providers:
@@ -252,6 +258,8 @@ def build_state(relay, providers):
         row["model"] = {"claude": claude_model, "codex": codex_model}.get(pid, p.get("defaultModel", ""))
         row["live"] = live.get(pid) or {"running": False, "state": "idle", "actions": []}
         row["lastLimit"] = limits.get(pid)
+        if pid in active_roles:
+            row["role"], row["model"] = active_roles[pid]
         row["fallbackBuildsToday"] = fb.get(pid)
         row["usage"] = codex_usage() if p.get("usage") == "codex-session-log" else (claude_usage(relay) if p.get("usage") == "claude-stream" else None)
         state["providers"].append(row)
@@ -274,6 +282,7 @@ def build_state(relay, providers):
     state["testCheck"] = {"count": len(checks), "label": checks[-1] if checks else ""}
     state["requests"] = appapi.list_requests(relay)[-14:]
     state["queue"] = appapi.next_tasks(relay, 5)
+    state["runtime"] = appapi.runtime_state(relay)
     return state
 
 
@@ -423,6 +432,7 @@ def wizard_state(relay):
         info = {}
         try: info = json.loads((r / "relay.project.json").read_text(encoding="utf-8-sig"))
         except (OSError, ValueError): pass
+        if not isinstance(info, dict): info = {}
         tasks = appapi.list_tasks(r)
         remote = ""
         try:
@@ -430,9 +440,11 @@ def wizard_state(relay):
             remote = rc.stdout.strip() if rc.returncode == 0 else ""
         except OSError: pass
         proj = {"path": str(r), "exists": True, "name": info.get("name") or r.name, "idea": info.get("idea", ""), "stack": info.get("stack", []),
-                "testCommand": info.get("testCommand", ""), "hasProposal": (r / "PROPOSAL.md").exists(), "hasPlan": bool(tasks) and (r / "AGENTS.md").exists(),
+                "testCommand": info.get("testCommand", ""), "localWorkspace": info.get("localWorkspace") is True,
+                "hasProposal": (r / "PROPOSAL.md").exists(), "hasPlan": bool(tasks) and (r / "AGENTS.md").exists(),
                 "taskCount": len(tasks), "tasksReady": existing.formatted_tasks(r)[0], "hasSource": (r / existing.SOURCE_NAME).exists(), "hasRelay": bool(appapi.relay_script(r)), "script": appapi.relay_script(r), "running": appapi.relay_running(r), "remote": remote,
-                "requires": [s for s in (appapi.toolchain_status(x) for x in info.get("requires", []) if isinstance(x, str)) if s]}
+                "requires": [s for s in (appapi.toolchain_status(x) for x in info.get("requires", []) if isinstance(x, str)) if s],
+                "runnerUpdate": appapi.runner_update_available(r)}
     return {"project": proj, "githost": appapi.githost_status()}
 
 
@@ -449,13 +461,22 @@ def flux_logo():
 
 class Handler(BaseHTTPRequestHandler):
     relay = None; providers = []; on_quit = None
+    on_notify = None
+    native_notification_shown_at = None
+    notification_lock = threading.Lock()
+    notification_seen = set()
 
     def log_message(self, *a): pass
 
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype, headers=None):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(data)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for key, value in (headers or {}).items(): self.send_header(key, str(value))
+        self.end_headers()
+        try: self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError): pass
 
     def _json_body(self):
         try: return json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000)) or b"{}")
@@ -472,7 +493,32 @@ class Handler(BaseHTTPRequestHandler):
         # every action here changes this computer: accepted from this computer only, never over the network
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             return self._send(403, json.dumps({"error": "actions can only be used from this computer"}), "application/json")
-        body = self._json_body(); path = self.path
+        port = self.server.server_port
+        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+        origin = self.headers.get("Origin")
+        if self.headers.get("Host", "").lower() not in allowed_hosts or (origin and origin not in {"http://" + h for h in allowed_hosts}):
+            return self._send(403, json.dumps({"error": "Open Relay on its own localhost page to change it."}), "application/json")
+        path = self.path
+        if path.startswith("/api/recordings/save?"):
+            from urllib.parse import parse_qs, urlsplit, unquote
+            try:
+                if Handler.relay is None: raise ValueError("Choose a project first")
+                length = int(self.headers.get("Content-Length", "0"))
+                if self.headers.get("Transfer-Encoding") or not 0 < length <= reviewmedia.MAX_CLIP_BYTES:
+                    self.close_connection = True
+                    return self._send(413, json.dumps({"ok": False, "error": "Choose a nonempty clip of 45 MB or less"}), "application/json")
+                query = parse_qs(urlsplit(path).query)
+                # A broken uploader cannot leave a request thread blocked indefinitely.
+                self.connection.settimeout(30)
+                item = reviewmedia.save(Handler.relay, query.get("task", [""])[0], self.rfile, length, self.headers.get("Content-Type", ""),
+                                        unquote(self.headers.get("X-Review-Note", "")), self.headers.get("X-Clip-Duration"),
+                                        self.headers.get("X-Clip-Commit", ""), self.headers.get("X-Clip-Task-Hash", ""), self.headers.get("X-Clip-Source", "upload"), self.headers.get("X-Clip-Project", ""),
+                                        revision=self.headers.get("X-Review-Revision", ""), build=self.headers.get("X-Review-Build", ""))
+                return self._send(200, json.dumps({"ok": True, "artifact": item}), "application/json")
+            except (ValueError, OSError) as exc:
+                self.close_connection = True
+                return self._send(400, json.dumps({"ok": False, "error": str(exc)}), "application/json")
+        body = self._json_body()
         def reply(obj, code=200): self._send(code, json.dumps(obj), "application/json")
         def need_project():
             if Handler.relay is None: reply({"ok": False, "error": "Choose or create a project first."}, 400); return True
@@ -480,6 +526,27 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/quit":
                 reply({"ok": True}); threading.Thread(target=(Handler.on_quit or Handler.srv.shutdown), daemon=True).start(); return
+            if path == "/api/notifications/show":
+                notify = Handler.on_notify
+                if notify is None: return reply({"ok": False, "error": "Native notifications are unavailable here."}, 400)
+                if body.get("test") is True:
+                    notify("Agent Relay", "Desktop notifications are enabled.")
+                    return reply({"ok": True})
+                if need_project(): return
+                event = next((item for item in appapi.runtime_state(self.relay).get("events", [])
+                              if item["id"] == body.get("id") and item["kind"] in ("blocked", "needs_review", "task_done", "review_clip")), None)
+                if event is None: return reply({"ok": False, "error": "No matching notification event."}, 400)
+                event_key = (str(self.relay), event["id"])
+                # Release the lock before dispatching to the native UI thread.
+                with Handler.notification_lock:
+                    if event_key in Handler.notification_seen: return reply({"ok": True})
+                    Handler.notification_seen.add(event_key)
+                try:
+                    notify("Agent Relay" + (" · " + event["task"] if event["task"] else ""), event["message"][:240])
+                except Exception:
+                    with Handler.notification_lock: Handler.notification_seen.discard(event_key)
+                    raise
+                return reply({"ok": True})
             if path == "/api/open-external":
                 url = str(body.get("url", ""))
                 if url.rstrip("/") not in EXTERNAL_OK: return reply({"ok": False, "error": "not allowed"}, 400)
@@ -518,11 +585,13 @@ class Handler(BaseHTTPRequestHandler):
                 if path.endswith("remove"): return reply(customai.remove(Handler.relay, body.get("id", "")))
                 return reply(customai.refresh_models(Handler.relay, body.get("id", "")))
             if path == "/api/project/create":
-                r = appapi.create_project(body.get("name", ""), body.get("root", ""))
+                workspace = body.get("localWorkspace") is True
+                r = appapi.create_project(body.get("name", ""), body.get("root", ""),
+                                          workspace_idea=str(body.get("idea") or "") if workspace else None)
                 if not r.get("ok"): return reply(r, 400)
                 Handler.relay = pathlib.Path(r["path"])
                 host = body.get("host", "local")
-                if host in ("github", "gitlab") and body.get("createRemote"):
+                if not workspace and host in ("github", "gitlab") and body.get("createRemote"):
                     r["remote"] = appapi.githost_create_repo(host, r["path"], appapi.folder_name(body.get("name", "")))
                 return reply(r)
             if path == "/api/project":
@@ -537,6 +606,27 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/install-relay":
                 target = body.get("path") or (str(Handler.relay) if Handler.relay else "")
                 return reply(appapi.install_relay(target))
+            if path == "/api/project/update-runner":
+                if need_project(): return
+                project = Handler.relay
+                if body.get("project") != str(project):
+                    return reply({"ok": False, "error": "The open project changed. Try again from that project's dashboard."}, 409)
+                if any(job["path"] == str(project) and job["state"] == "running" for job in list(planner.JOBS.values())):
+                    return reply({"ok": False, "error": "Wait for planning to finish before updating Relay."}, 409)
+                result = appapi.update_runner(project)
+                return reply(result, 200 if result["ok"] else 409)
+            if path in ("/api/project/access/check", "/api/project/access/policy"):
+                if need_project(): return
+                project = Handler.relay
+                if body.get("project") != str(project):
+                    return reply({"ok": False, "error": "The open project changed. Try again from its settings."}, 409)
+                if path.endswith("/check"):
+                    result = appapi.check_project_access(project, body.get("provider"))
+                    return reply(result, 200 if result["ok"] else 409)
+                if not appapi.supports_project_access(project) or not isinstance(body.get("checkedOnly"), bool):
+                    return reply({"ok": False, "error": "This project's access setting could not be saved."}, 400)
+                appapi.runtime_for(project).set_access_policy(body["checkedOnly"])
+                return reply({"ok": True, "access": appapi.project_access(project)})
             if path == "/api/plan/start":
                 if need_project(): return
                 prov = body.get("provider", "claude")
@@ -552,12 +642,22 @@ class Handler(BaseHTTPRequestHandler):
                 ch = normalize_task_recs(Handler.relay, self._reviewer_model())
                 r = planner.commit_plan(str(Handler.relay)); r["normalized"] = ch
                 return reply(r)
+            if path == "/api/task/add":
+                if need_project(): return
+                if body.get("project") != str(Handler.relay):
+                    return reply({"ok": False, "error": "The open project changed. Open its Tasks page and try again."}, 409)
+                if any(job["path"] == str(Handler.relay) and job["state"] == "running" for job in list(planner.JOBS.values())):
+                    return reply({"ok": False, "error": "Wait for the plan to finish before adding a task."}, 409)
+                r = appapi.add_task(Handler.relay, body.get("title", ""), body.get("description", ""), body.get("review", ""))
+                return reply(r, 200 if r.get("ok") else 400)
             if path in ("/api/task/approve", "/api/task/changes", "/api/task/next", "/api/task/cancel"):
                 if need_project(): return
                 mode = appapi.relay_script(Handler.relay)
                 if mode == "relay-files.sh":
-                    if path.endswith("approve"): return reply(appapi.approve_task(Handler.relay, body.get("task", "")))
-                    if path.endswith("changes"): return reply(appapi.request_changes(Handler.relay, body.get("task", ""), body.get("note", "")))
+                    if path.endswith(("approve", "changes")):
+                        result = appapi.decide_review(Handler.relay, body.get("task", ""), body.get("revision", ""),
+                                                      path.rsplit("/", 1)[1], body.get("note", ""))
+                        return reply(result, 200 if result["ok"] else 409)
                     if path.endswith("next"): return reply(appapi.queue_next(Handler.relay, body.get("task", "")))
                     return reply({"ok": False, "error": "nothing to cancel here"}, 400)
                 if mode == "relay.sh":      # a project whose board is elsewhere: leave a request for its dispatcher
@@ -568,9 +668,27 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/task/recommend":
                 if need_project(): return
                 return reply(appapi.set_task_rec(Handler.relay, body.get("task", ""), body.get("provider", ""), body.get("model", ""), body.get("effort", "")))
+            if path == "/api/task/feedback":
+                if need_project(): return
+                if appapi.relay_script(Handler.relay) != "relay-files.sh":
+                    return reply({"ok": False, "error": "This project uses a custom task workflow."}, 400)
+                return reply(appapi.request_work_changes(Handler.relay, body.get("task", ""), body.get("note", "")))
             if need_project(): return
             if path == "/api/relay/start": return reply(appapi.start_relay(Handler.relay, bool(body.get("saveAside"))))
             if path == "/api/relay/stop": return reply(appapi.stop_relay(Handler.relay))
+            if path == "/api/worktrees/create":
+                if need_project(): return
+                return reply(appapi.create_worktree(Handler.relay))
+            if path == "/api/artifacts/add":
+                if need_project(): return
+                item = appapi.runtime_for(Handler.relay).add_artifact(str(body.get("task", "")), str(body.get("path", "")), str(body.get("note", "")),
+                                                                     revision=body.get("revision", ""), build=body.get("build", ""))
+                return reply({"ok": True, "artifact": item})
+            if path == "/api/runtime/retry":
+                if need_project(): return
+                if appapi.relay_running(Handler.relay): return reply({"ok": False, "error": "Stop the worker before approving a retry."}, 409)
+                appapi.runtime_for(Handler.relay).approve_retry()
+                return reply({"ok": True})
             if path == "/api/settings":
                 ok, problems = save_settings(self.relay, body)
                 return reply({"saved": ok, **problems}, 200 if ok else 400)
@@ -583,6 +701,39 @@ class Handler(BaseHTTPRequestHandler):
         def reply(obj, code=200): self._send(code, json.dumps(obj), "application/json")
         try:
             if p == "/api/models": return reply(with_custom(model_catalog(), self.relay))
+            if p == "/api/runtime": return reply(appapi.runtime_state(self.relay))
+            if p == "/api/project/access":
+                return reply(appapi.project_access(self.relay) if self.relay else {"supported": False})
+            if p == "/api/notifications/status":
+                return reply({"native": Handler.on_notify is not None, "shownAt": Handler.native_notification_shown_at})
+            if p == "/review.js": return self._send(200, (HERE / "review.js").read_bytes(), "text/javascript; charset=utf-8")
+            if p.startswith("/api/recordings/context?"):
+                from urllib.parse import parse_qs, urlsplit
+                try:
+                    if self.relay is None: raise ValueError("Choose a project first")
+                    return reply(reviewmedia.context(self.relay, parse_qs(urlsplit(p).query).get("task", [""])[0]))
+                except ValueError as exc: return reply({"error": str(exc)}, 400)
+            if p.startswith("/api/artifact?"):
+                from urllib.parse import parse_qs, urlsplit
+                import mimetypes
+                query = parse_qs(urlsplit(p).query)
+                try:
+                    file = appapi.artifact_file(self.relay, query.get("task", [""])[0], query.get("path", [""])[0])
+                    if file.stat().st_size > 50 * 1024 * 1024:
+                        return reply({"error": "Artifact exceeds the 50 MB preview limit; open it locally."}, 413)
+                    size = file.stat().st_size
+                    try:
+                        start, end, partial = reviewmedia.byte_range(self.headers.get("Range"), size)
+                    except ValueError as exc:
+                        return self._send(416, str(exc), "text/plain", {"Content-Range": f"bytes */{size}"})
+                    with file.open("rb") as stream:
+                        stream.seek(start)
+                        data = stream.read(max(0, end - start + 1))
+                    headers = {"Accept-Ranges": "bytes"}
+                    if partial: headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+                    return self._send(206 if partial else 200, data, mimetypes.guess_type(file.name)[0] or "application/octet-stream", headers)
+                except (ValueError, OSError) as exc:
+                    return reply({"error": str(exc)}, 400)
             if p.startswith("/api/plan/status"): return reply(planner.job_status(p.split("job=")[-1] if "job=" in p else ""))
             if p == "/api/brand": return reply({"fluxLogo": flux_logo(), "credit": "Driven by Flux", "url": "https://flux.mk"})
             if p.startswith("/assets/"):
@@ -617,7 +768,9 @@ class Handler(BaseHTTPRequestHandler):
                         mine = [r for r in reqs if r["task"] == t["id"]]
                         t["queuedNext"] = any(r["kind"] == "next" for r in mine); t["fixRequested"] = any(r["kind"] == "fix" for r in mine)
                         t["approved"] = any(r["kind"] == "approved" for r in mine)
-                return reply({"tasks": tasks, "current": nt.get("current", ""), "mode": "files" if mode == "relay-files.sh" else "board" if mode == "relay.sh" else "none",
+                return reply({"tasks": tasks, "project": str(self.relay) if self.relay else "",
+                              "canAdd": mode == "relay-files.sh" and not (self.relay / "relay.sh").exists(),
+                              "current": nt.get("current", ""), "mode": "files" if mode == "relay-files.sh" else "board" if mode == "relay.sh" else "none",
                               "actions": mode in ("relay-files.sh", "relay.sh")})
             if p == "/api/setup":
                 s = appapi.detect_setup()

@@ -1,4 +1,5 @@
 <title>Agent Relay</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0.2' y1='0' x2='0.8' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3ClinearGradient id='g2' x1='0.8' y1='0' x2='0.2' y2='1'%3E%3Cstop offset='0' stop-color='%2338bdf8'/%3E%3Cstop offset='1' stop-color='%234f6bf0'/%3E%3C/linearGradient%3E%3ClinearGradient id='g3' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23a5f3fc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z' fill='url(%23g1)'/%3E%3Cpath d='M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z' fill='url(%23g2)' opacity='0.92'/%3E%3Ccircle cx='128' cy='172' r='19' fill='url(%23g3)'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#667085;--line:#e3e6ea;--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00;--bar:#e6e9ee;--acc:#2f6fed}
@@ -26,6 +27,9 @@ button:disabled{opacity:.5;cursor:default}.pri{background:var(--acc);color:#fff;
 select,input,textarea{font:inherit;padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 textarea{width:100%;min-height:90px}label.l{display:block;margin:12px 0 4px;font-weight:600}
 .srow{display:grid;grid-template-columns:110px 130px 1fr 170px;gap:8px;align-items:center;padding:4px 0}
+.srow>*{min-width:0}.srow input,.srow select{max-width:100%}
+#runtime-events p{overflow-wrap:anywhere}#runtime-calls th{text-align:left;font-weight:600;padding:7px 8px 7px 0}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
 @media(max-width:640px){.srow{grid-template-columns:1fr 1fr}}
 .stepper{display:flex;gap:4px;margin:0 0 14px;flex-wrap:wrap}
 .stepper div{flex:1;min-width:110px;padding:8px 10px;border-radius:8px;background:var(--bar);color:var(--mute);font-size:13px;cursor:default}
@@ -63,11 +67,14 @@ ul.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}ul.chips li{border:
 .badge{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
 .badge.todo{color:var(--acc);border-color:var(--acc)}.badge.owner{color:var(--warn);border-color:var(--warn)}.badge.done{color:var(--ok);border-color:var(--ok)}
 table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;border-top:1px solid var(--line);vertical-align:middle}table.tt tr.h td{border-top:0;color:var(--mute);font-size:12px}
+.basic-form{max-width:620px}.basic-form input,.basic-form textarea{width:100%}
+.workspace-help{margin:6px 0 12px}.technical-details{margin-top:14px}.technical-details>summary{margin-bottom:10px}
+[hidden]{display:none!important}
 </style>
 <div id="splash"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="104" height="104"><defs><linearGradient id="s1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="s2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="s3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#s1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#s2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#s3)"/></svg><div class="n">AGENT RELAY</div><div class="s">Getting things ready…</div><div class="ld"><i></i></div><div class="by" id="splashby"></div></div>
 <main>
 <header><h1 style="display:flex;align-items:center;gap:8px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="28" height="28"><defs><linearGradient id="h1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="h2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="h3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#h1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#h2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#h3)"/></svg>Agent Relay</h1><span id="status" class="pill stop">…</span><span id="meta" class="mute"></span><span style="flex:1"></span>
-  <button id="btnnew" hidden>New project</button><button id="btnstart" hidden class="go">Start</button><button id="btnstop" hidden>Stop</button><button id="btnquit" title="Close this app (a running relay keeps running)">Quit app</button><span id="clock" class="mute"></span></header>
+  <button id="btnnew" hidden>Switch project</button><button id="btnstart" hidden class="go">Start building</button><button id="btnstop" hidden>Stop</button><button id="btnquit" title="Close this app (a running relay keeps running)">Quit app</button><span id="clock" class="mute"></span></header>
 
 <div id="setup" hidden>
   <div class="stepper" id="stepper"></div>
@@ -76,26 +83,48 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 
 <div id="dash" hidden>
   <div class="tabs"><button class="tab on" data-tab="overview">Overview</button><button class="tab" data-tab="tasks">Tasks</button><button class="tab" data-tab="setup">AIs &amp; settings</button></div>
+  <p id="tasksource" class="mute small"></p>
+  <div id="runner-update" class="card row2" style="margin-bottom:10px" hidden>
+    <button id="update-runner" aria-describedby="runner-update-info">Update Relay</button>
+    <span id="runner-update-info" class="mute small"></span>
+    <span id="runner-update-status" class="small" role="status"></span>
+  </div>
   <div id="reqbox"></div>
 
   <div id="tab-overview">
-    <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">loading…</div><ul id="next" class="chips"></ul></div>
-    <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
+    <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">Loading project…</div><ul id="next" class="chips"></ul>
+      <div class="row2" style="margin-top:10px"><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button></div>
+    </div>
     <div class="cols">
       <div class="card"><h2>Next in line</h2><div id="nexttasks" class="mute">loading…</div></div>
       <div class="card"><h2>Needs you</h2><div id="needsyou"><div class="needbig" id="needcount">–</div><div class="mute small" id="needlabel" style="margin:2px 0 8px">tasks waiting for your review</div>
-        <div id="queue" class="mute small"></div><div class="row2" style="margin-top:10px"><a href="/digest" class="btnlink">Open the review page</a><a href="#" id="needtasks" class="btnlink">See them in Tasks</a></div></div></div>
+        <div id="queue" class="mute small"></div><div class="row2" style="margin-top:10px"><a href="/digest" class="btnlink" id="open-review">Review work</a><a href="#" id="needtasks" class="btnlink">See them in Tasks</a></div></div></div>
     </div>
     <div class="cols" style="margin-top:14px">
       <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
       <div class="card"><h2>Broke</h2><ul id="broke"></ul><details style="margin-top:8px"><summary class="mute small">Idle chores</summary><ul id="idle"></ul></details></div>
     </div>
-    <div id="digestlink" hidden></div>
+    <div class="row2"><button id="btnnotify">Enable desktop notifications</button><span id="runtime-notice" class="mute small" role="status" aria-live="polite"></span></div>
+    <details class="technical-details"><summary>Technical details</summary>
+      <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
+      <div class="card"><h2>Task activity and recovery</h2>
+        <div class="row2"><button id="btnworktree">Create isolated workspace</button><button id="btnretry">Approve task retry</button></div>
+        <div id="runtime-state" class="mute small" style="margin-top:10px"></div><div id="runtime-events"></div>
+        <details style="margin-top:10px"><summary>Provider calls</summary><div style="overflow-x:auto"><table class="tt" id="runtime-calls"></table></div></details>
+      </div>
+    </details>
   </div>
 
   <div id="tab-tasks" hidden></div>
 
   <div id="tab-setup" hidden>
+    <section class="card" id="project-access" hidden aria-labelledby="project-access-title">
+      <h2 id="project-access-title">AI project access</h2>
+      <div id="project-access-tools"></div>
+      <p id="project-access-note" class="mute small"></p>
+      <label id="project-access-policy"><input type="checkbox" id="project-access-only"> Use only AI tools that pass</label>
+      <p id="project-access-status" class="small" role="status"></p>
+    </section>
     <div class="card"><h2>Settings: who does what (applies from the next agent call, no restart)</h2>
       <div id="setmsg"></div><div id="setform" class="mute">loading…</div>
       <div style="margin-top:10px"><button id="setsave">Save</button> <button id="setreload">Reload</button> <span class="mute small" id="setnote"></span></div></div>
@@ -110,7 +139,10 @@ const fmt=s=>{s=Math.round(Math.abs(s));const h=Math.floor(s/3600),m=Math.floor(
 const esc=t=>String(t??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const bar=(p,mode)=>`<div class="bar ${mode==="task"?"":p>=95?"full":p>=75?"hi":""}"><i style="width:${Math.min(100,p)}%"></i></div>`;
 const NL=String.fromCharCode(10);
-async function get(p){return (await fetch(p)).json()}
+async function get(p,timeoutMs=10000){
+  const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),timeoutMs);
+  try{const response=await fetch(p,{signal:abort.signal});if(!response.ok)throw Error("Request failed ("+response.status+")");return await response.json()}
+  finally{clearTimeout(timer)}}
 async function post(p,b){const r=await fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})});return r.json()}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -119,7 +151,7 @@ let off=0;
 
 /* ------------------------------------------------------------ dropdown helpers */
 function selOpts(items,cur,extraFirst){
-  let list=items.slice();if(cur&&!list.some(x=>x.id===cur)&&cur!=="auto")list.unshift({id:cur,label:cur+" (current)"});
+  let list=items.slice();if(cur&&!list.some(x=>x.id===cur)&&!(cur==="auto"&&extraFirst))list.unshift({id:cur,label:cur+" (current)"});
   let html=extraFirst||"";const groups={};list.forEach(x=>{(groups[x.group||""]=groups[x.group||""]||[]).push(x)});
   Object.keys(groups).forEach(g=>{const o=groups[g].map(x=>`<option value="${esc(x.id)}" ${x.id===cur?"selected":""}>${esc(x.label)}</option>`).join("");html+=g?`<optgroup label="${esc(g)}">${o}</optgroup>`:o});return html}
 function optList(list,sel){return list.map(x=>`<option ${x===sel?"selected":""}>${x}</option>`).join("")}
@@ -136,22 +168,50 @@ showBrand();
 function hideSplash(){const s=document.getElementById("splash");if(!s)return;s.classList.add("hide");setTimeout(()=>s.remove(),700)}
 setTimeout(hideSplash,20000);
 async function boot(){
-  [SETUP,ENV,WZ,CAT]=await Promise.all([get("/api/setup"),get("/api/env"),get("/api/wizard"),get("/api/models")]);
+  [ENV,WZ]=await Promise.all([get("/api/env"),get("/api/wizard")]);
+  get("/api/models").then(value=>{CAT=value;if($("#f_prov"))fillPlannerModels()}).catch(()=>{});
+  get("/api/setup").then(value=>{
+    SETUP=value;
+    if(MODE==="setup"&&STEP===1)drawTools();
+    const picker=$("#f_prov");
+    if(picker&&!picker.value){
+      const tools=usableAIs();
+      if(tools.length){
+        FORM.prov=tools[0].id;
+        picker.innerHTML=tools.map(tool=>`<option value="${esc(tool.id)}">${esc(tool.name)}</option>`).join("");
+        fillPlannerModels();
+      }
+    }
+  }).catch(()=>{});
   const p=WZ.project;
-  if(p.exists&&p.hasPlan&&p.hasRelay){MODE="dash"}else{MODE="setup";STEP=firstStep()}
+  if(p.exists&&p.hasRelay&&(p.hasPlan||p.localWorkspace)){MODE="dash"}else{MODE="setup";STEP=firstStep()}
   apply();hideSplash()}
-function toolsReady(){const basicsOk=SETUP.basics.every(b=>!b.needed||b.found);return basicsOk&&usableAIs().length>=2}
-function firstStep(){const p=WZ.project;if(!toolsReady()&&!p.exists)return 1;if(!p.exists||!p.hasProposal)return p.exists?3:2;if(!p.hasPlan)return 3;return STEP<4?4:STEP}
+function toolsReady(){return !!SETUP&&SETUP.basics.every(b=>!b.needed||b.found)&&usableAIs().length>=2}
+function firstStep(){const p=WZ.project;if(!p.exists)return 2;if(!p.hasProposal||!p.hasPlan)return 3;return STEP<4?4:STEP}
 function apply(){
   $("#setup").hidden=MODE!=="setup";$("#dash").hidden=MODE!=="dash";
   $("#btnnew").hidden=MODE!=="dash";
   if(MODE==="setup"){renderStepper();renderStep()}else{dashInit()}
   headerButtons()}
-function headerButtons(){const p=WZ.project;$("#btnstart").hidden=!(MODE==="dash"&&p.hasRelay&&!p.running);$("#btnstop").hidden=!(MODE==="dash"&&p.running)}
+function headerButtons(){
+  const p=WZ.project, pendingPlan=p.localWorkspace&&(!p.hasPlan||!p.testCommand);
+  $("#btnstart").hidden=!(MODE==="dash"&&p.hasRelay&&!p.running&&!pendingPlan);
+  $("#btnstop").hidden=!(MODE==="dash"&&p.running);
+  $("#workspace-add").hidden=p.script!=="relay-files.sh";
+  $("#workspace-plan").hidden=!pendingPlan;
+  const button=$("#update-runner"), status=$("#runner-update-status"), info=$("#runner-update-info");
+  if(status.dataset.project!==p.path){status.textContent="";status.dataset.project=p.path||""}
+  $("#runner-update").hidden=!p.runnerUpdate&&!status.textContent;
+  button.hidden=!p.runnerUpdate;
+  button.disabled=p.running||button.dataset.busy==="true";
+  info.textContent=p.runnerUpdate&&!status.textContent
+    ? p.running?"Stop Relay for this project to update it.":"Install the Relay update included with this app."
+    : "";
+}
 
 /* ------------------------------------------------------------ stepper */
 const STEPS=["Your AI tools","Your project","The plan","Which AI builds what","Start"];
-function renderStepper(){$("#stepper").innerHTML=STEPS.map((s,i)=>`<div class="${i+1===STEP?"cur":i+1<STEP?"done":""}">${i+1<STEP?"✓ ":(i+1)+". "}${s}</div>`).join("")}
+function renderStepper(){$("#stepper").hidden=STEP===2;$("#stepper").innerHTML=STEPS.map((s,i)=>`<div class="${i+1===STEP?"cur":""}">${s}</div>`).join("")}
 function go(n){STEP=n;renderStepper();renderStep();window.scrollTo(0,0)}
 function canNext(){return true}
 
@@ -179,12 +239,13 @@ async function refreshSetup(){SETUP=await get("/api/setup");if(MODE==="setup"&&S
 function stepTools(){
   $("#step").innerHTML=`<div class="card"><h3>1. Your AI tools</h3>
     <div class="mute">The relay needs at least two different AIs: one builds, a second one checks the work. Install what is missing and sign in. Anything marked optional can wait.</div>
-    <div id="toolsbox"></div><div id="toolsmsg" style="margin-top:10px"></div>
+    <div id="toolsbox">Checking AI tools…</div><div id="toolsmsg" style="margin-top:10px"></div>
     <details style="margin-top:10px"><summary><b>Add another AI</b> <span class="mute small">Antigravity, Gemini CLI, Aider, anything with a command-line tool</span></summary><div id="customarea1"></div></details>
     <div class="nav"><span></span><button id="next1" class="pri">Continue</button></div></div>`;
   drawTools();renderCustom("#customarea1");
-  $("#next1").onclick=()=>{if(!toolsReady()&&!confirm("Some things are still missing (see above). Continue anyway?"))return;go(2)}}
+  $("#next1").onclick=()=>{if(WZ.project.localWorkspace){showWorkspacePlanner();return}go(2)}}
 function drawTools(){
+  if(!SETUP||!$("#toolsbox"))return;
   const miss=SETUP.basics.filter(b=>!b.found);
   $("#toolsbox").innerHTML=(miss.length?"<h2 style='margin-top:12px'>Needed first</h2>"+miss.map(toolRow).join(""):`<div class="mute small" style="margin:8px 0">✓ ${SETUP.basics.map(b=>b.name.split(" (")[0]).join(", ")} found</div>`)+
     "<h2 style='margin-top:12px'>AI tools</h2>"+SETUP.tools.map(toolRow).join("");
@@ -223,13 +284,30 @@ function suggestName(idea){return cleanName(idea.split(/\s+/).slice(0,3).join(" 
 function joinPath(base,name){const sep=ENV.os==="windows"?"\\":"/";return base.replace(/[\\/]+$/,"")+sep+name}
 function projectsRoot(d){return joinPath(d.path,"Projects")}
 function stepProject(){
-  $("#step").innerHTML=`<div class="card"><h3>2. Your project</h3>
-    <div class="row2" style="margin-top:6px"><label class="opt"><input type="radio" name="pm" value="new" ${FORM.mode==="new"?"checked":""}><div><b>Start something new</b><div class="mute small">Tell the AI your idea. It plans the project and builds it.</div></div></label>
-    <label class="opt"><input type="radio" name="pm" value="existing" ${FORM.mode==="existing"?"checked":""}><div><b>I already have a project</b><div class="mute small">Pick its folder. Give the AI your task list, or let it read the project and write the tasks.</div></div></label></div></div><div id="pbody"></div>`;
+  $("#step").innerHTML=`<div class="card"><h3>Your project</h3><p class="mute workspace-help">Keep your tasks and reviews on this computer.</p>
+    <div class="row2"><label class="opt"><input type="radio" name="pm" value="new" ${FORM.mode==="new"?"checked":""}>Create a project</label>
+    <label class="opt"><input type="radio" name="pm" value="existing" ${FORM.mode==="existing"?"checked":""}>Open a project folder</label>
+    <button id="project-tools">Tools</button></div></div><div id="pbody"></div>`;
+  $("#project-tools").onclick=()=>go(1);
   document.querySelectorAll("[name=pm]").forEach(r=>r.onchange=()=>{FORM.mode=r.value;stepProject()});
   if(FORM.mode==="existing")stepExisting();else stepProjectNew()}
 function stepProjectNew(){
-  const ds=ENV.drives;if(!FORM.root){const rec=ds.find(d=>d.path===ENV.recommended)||ds[0];FORM.root=rec?projectsRoot(rec):""}
+  if(!FORM.root)FORM.root=ENV.projectsRoot||"";
+  if(!FORM.advanced){
+    $("#pbody").innerHTML=`<form id="workspace-create" class="card basic-form">
+      <label class="l" for="workspace-name">Project name</label><input id="workspace-name" required maxlength="60" value="${esc(FORM.name)}">
+      <label class="l" for="workspace-idea">What are you making? <span class="mute small">(optional)</span></label>
+      <textarea id="workspace-idea" maxlength="3000" placeholder="A website for my football club that shows fixtures and results.">${esc(FORM.idea)}</textarea>
+      <p class="mute small" id="pathprev"></p>
+      <div class="row2"><button type="submit" class="pri">Create project</button><button type="button" id="workspace-location">Choose folder…</button><button type="button" id="workspace-advanced">Advanced setup</button></div>
+      <p id="workspace-create-status" role="status"></p></form>`;
+    $("#workspace-name").oninput=event=>{FORM.name=event.target.value;pathPreview()};
+    $("#workspace-idea").oninput=event=>{FORM.idea=event.target.value};
+    $("#workspace-create").onsubmit=createWorkspace;
+    $("#workspace-advanced").onclick=()=>{FORM.advanced=true;stepProjectNew()};
+    $("#workspace-location").onclick=async()=>{const result=await post("/api/pick-folder",{title:"Choose where to save the project"});if(result.ok&&result.path){FORM.root=result.path;pathPreview()}else if(!result.ok)$("#workspace-create-status").textContent=result.error};
+    pathPreview();return;
+  }
   const stacks=["","Website: Next.js + TypeScript","Website: Python + Flask","Website: plain HTML, CSS and JavaScript","Mobile app: React Native (Expo)","Desktop app: Electron + TypeScript","Game: Godot 4 (GDScript)","Game: Unity (C#)","Game in the browser: Phaser + TypeScript","Command-line tool: Python","Command-line tool: Node.js","Backend API: Java + Spring Boot","Backend API: Python + FastAPI","Data / automation scripts: Python"];
   const u=usableAIs();if(!FORM.prov){const c=u.find(t=>t.id==="claude")||u.find(t=>t.id==="codex")||u[0];FORM.prov=c?c.id:""}
   $("#pbody").innerHTML=`<div class="card">
@@ -256,14 +334,66 @@ function stepProjectNew(){
   $("#f_stack").onchange=e=>{FORM.stack=e.target.value;$("#f_stack_o").hidden=FORM.stack!=="__other"};
   $("#f_stack_o").oninput=e=>{FORM.stackOther=e.target.value};
   $("#f_prov").onchange=e=>{FORM.prov=e.target.value;FORM.model="";FORM.effort="";fillPlannerModels()};
-  $("#back2").onclick=()=>go(1);$("#go2").onclick=createAndPropose;pathPreview()}
+  $("#back2").onclick=()=>{FORM.advanced=false;stepProjectNew()};$("#go2").onclick=createAndPropose;pathPreview()}
+async function createWorkspace(event){
+  event.preventDefault();
+  const form=event.currentTarget, button=form.querySelector("button[type=submit]"), status=$("#workspace-create-status");
+  button.disabled=true;
+  status.textContent="Creating your project…";
+  try{
+    const result=await post("/api/project/create",{name:FORM.name,root:FORM.root,idea:FORM.idea,localWorkspace:true});
+    if(!result.ok){status.textContent=result.error;return}
+    WZ=await get("/api/wizard");MODE="dash";TAB="tasks";TT.touched=false;apply();
+  }catch{status.textContent="Relay could not open the project. Check the folder and try again."}
+  finally{button.disabled=false}
+}
+async function showWorkspacePlanner(){
+  const project=WZ.project;
+  MODE="setup";STEP=3;
+  $("#setup").hidden=false;$("#dash").hidden=true;$("#btnnew").hidden=true;
+  renderStepper();headerButtons();
+  if(project.hasProposal){
+    FORM.workspacePlan=true;
+    if(!FORM.prov){
+      $("#step").textContent="Opening your proposal…";
+      SETUP=await get("/api/setup").catch(()=>SETUP);
+      FORM.prov=usableAIs().find(tool=>["claude","codex","opencode"].includes(tool.id))?.id||"";
+    }
+    return drawProposal();
+  }
+  $("#step").innerHTML=`<form id="workspace-plan-form" class="card basic-form">
+    <h3>Plan with AI</h3><p class="mute">Describe what you want to build. You’ll review the plan before any build starts.</p>
+    <label class="l" for="workspace-goal">What should this project do?</label>
+    <textarea id="workspace-goal" maxlength="3000" required>${esc(FORM.workspaceGoal||project.idea)}</textarea>
+    <div class="row2"><button class="pri" type="submit">Write a proposal</button><button type="button" id="workspace-ai-tools">Set up AI tools</button><button type="button" id="workspace-back">Back to tasks</button></div>
+    <p role="status" id="workspace-plan-status"></p></form>`;
+  $("#workspace-ai-tools").onclick=()=>{FORM.workspaceGoal=$("#workspace-goal").value;go(1)};
+  $("#workspace-back").onclick=backToTasks;
+  $("#workspace-plan-form").onsubmit=async event=>{
+    event.preventDefault();
+    FORM.workspaceGoal=$("#workspace-goal").value.trim();
+    const button=event.currentTarget.querySelector("button[type=submit]"),status=$("#workspace-plan-status");
+    if(!FORM.workspaceGoal){status.textContent="Describe what you want the project to do.";return}
+    button.disabled=true;status.textContent="Checking available AI tools…";
+    try{
+      SETUP=await get("/api/setup");
+      FORM.prov=usableAIs().find(tool=>["claude","codex","opencode"].includes(tool.id))?.id||"";
+      if(!FORM.prov){status.textContent="Set up Claude, Codex or OpenCode, then try again.";return}
+      const result=await post("/api/plan/start",{phase:"propose",idea:FORM.workspaceGoal,suggest:true,provider:FORM.prov,existing:true});
+      if(!result.ok){status.textContent=result.error;return}
+      FORM.workspacePlan=true;JOB={id:result.job,phase:"propose"};watchJob();
+    }catch{status.textContent="Relay could not start the proposal. Try again."}
+    finally{button.disabled=false}
+  };
+}
+function backToTasks(){FORM.workspacePlan=false;MODE="dash";TAB="tasks";apply()}
 function plannerPickerHtml(){const u=usableAIs();if(!FORM.prov){const c=u.find(t=>t.id==="claude")||u.find(t=>t.id==="codex")||u[0];FORM.prov=c?c.id:""}
   return `<label class="l">Which AI reads the project and writes the tasks?</label><div class="row2"><select id="f_prov">${u.map(t=>`<option value="${t.id}" ${t.id===FORM.prov?"selected":""}>${esc(t.name)}</option>`).join("")||"<option value=''>no AI is ready: go back to step 1</option>"}</select><select id="f_model"></select><select id="f_effort"></select>
     <span class="mute small">It reads your files and writes plan documents only. Anything it changes outside those is put back.</span></div>`}
 async function stepExisting(){
   const i=FORM.existInfo;
   $("#pbody").innerHTML=`<div class="card">
-    <label class="l">Your project folder</label>
+    <label class="l" for="x_path">Your project folder</label>
     <div class="row2"><input id="x_path" size="46" placeholder="Paste the folder path, or click Browse" value="${esc(FORM.existPath)}"><button id="x_browse">Browse…</button><button id="x_check">Check this folder</button></div>
     <div id="x_info" style="margin-top:8px"></div>
     <div id="x_rest"></div></div>`;
@@ -277,6 +407,16 @@ async function inspectFolder(){
   FORM.existInfo=r;FORM.existPath=r.path;$("#x_path").value=r.path;if(r.tasksReady&&FORM.taskMode==="none")FORM.taskMode="ready";drawExistRest()}
 function drawExistRest(){
   const i=FORM.existInfo;if(!i)return;const d=i.detect||{};
+  if(i.readyToOpen){
+    $("#x_info").textContent=i.name;
+    $("#x_rest").innerHTML='<p class="mute">Relay is set up in this folder. Open it to see your tasks and reviews.</p><button class="pri" id="open-local-project">Open project</button> <span role="status" id="open-local-status"></span>';
+    $("#open-local-project").onclick=async()=>{
+      const result=await post("/api/project",{path:i.path});
+      if(!result.ok){$("#open-local-status").textContent=result.error;return}
+      WZ=await get("/api/wizard");MODE="dash";TAB="overview";TT.touched=false;apply();
+    };
+    return;
+  }
   $("#x_info").innerHTML=`<div><b>${esc(i.name)}</b> <span class="mute small">${esc(i.path)}</span></div>
     <div class="small">${d.stack&&d.stack.length?"Looks like: <b>"+esc(d.stack.join(", "))+"</b>":'<span class="mute">Could not tell what it is built with; the AI will find out.</span>'}${d.testCommand?` · tests run with <code>${esc(d.testCommand)}</code>`:' · <span class="warnc">no test command found</span>'}</div>
     <div class="small">${i.isGit?`git project on branch <b>${esc(i.branch)}</b>${i.dirtyCount?` · <span class="warnc">${i.dirtyCount} file(s) with unsaved changes (they are left alone)</span>`:""}`:'<span class="warnc">Not a git project yet.</span>'}</div>`;
@@ -368,8 +508,19 @@ function watchJob(){
   const t=async()=>{const s=await get("/api/plan/status?job="+JOB.id);
     if(s.state==="running"){$("#jobmsg").textContent="The AI is writing the "+(JOB.phase==="propose"||JOB.phase==="analyze"?"proposal":"plan")+"… "+fmt(s.elapsed)+" (usually 1 to 4 minutes)";return}
     clearInterval(P3);
-    if(s.state!=="done"){$("#jobmsg").innerHTML='<span class="bad">It did not finish: missing '+esc((s.missing||[]).join(", "))+".</span>";$("#joblog").innerHTML='<pre class="doc">'+esc(s.log||"")+'</pre><div class="nav"><button onclick="go(2)">Back</button><button class="pri" onclick="stepPlan()">Try again</button></div>';return}
-    if(JOB.phase==="propose"||JOB.phase==="analyze"){drawProposal()}else{await post("/api/plan/commit");drawPlanDone()}};
+    if(s.state!=="done"){
+      $("#jobmsg").textContent="The AI couldn’t finish the plan.";
+      $("#joblog").innerHTML='<details><summary>See what happened</summary><pre class="doc">'+esc(s.log||((s.missing||[]).join(", ")))+'</pre></details><div class="nav"><button id="job-back">Back</button></div>';
+      $("#job-back").onclick=FORM.workspacePlan?showWorkspacePlanner:()=>go(2);return
+    }
+    if(JOB.phase==="propose"||JOB.phase==="analyze"){drawProposal()}else{
+      const saved=await post("/api/plan/commit");
+      if(!saved.ok){$("#jobmsg").textContent="The plan was written, but Relay couldn’t save it to project history. "+(saved.error||"");return}
+      if(FORM.workspacePlan){
+        WZ=await get("/api/wizard");
+        if((WZ.project.requires||[]).some(item=>!item.found)){drawPlanDone()}else backToTasks();
+      }else drawPlanDone();
+    }};
   clearInterval(P3);t();P3=setInterval(t,3000)}
 async function drawProposal(){
   const d=await get("/api/docs");
@@ -377,9 +528,18 @@ async function drawProposal(){
     <pre class="doc">${esc(d.proposal)}</pre>
     <label class="l">Anything to change? <span class="mute small" style="font-weight:400">(optional, in your own words)</span></label>
     <textarea id="notes" placeholder="For example: use a different tool, skip milestone 3, answer one of the questions."></textarea>
-    <div class="nav"><button onclick="go(2)">Back</button><button class="pri" id="approve">Approve and make the plan</button></div></div>`;
-  $("#approve").onclick=async()=>{$("#approve").disabled=true;const j=await post("/api/plan/start",{phase:"plan",notes:$("#notes").value,provider:FORM.prov||"claude",model:FORM.model,effort:FORM.effort,existing:FORM.mode==="existing"});
-    if(!j.ok){alert(j.error);$("#approve").disabled=false;return}JOB={id:j.job,phase:"plan"};watchJob()}}
+    <p role="status" id="proposal-status"></p><div class="nav"><button id="proposal-back">Back</button><button class="pri" id="approve">Approve and make the plan</button></div></div>`;
+  $("#proposal-back").onclick=FORM.workspacePlan?backToTasks:()=>go(2);
+  $("#approve").onclick=async()=>{
+    if(FORM.workspacePlan&&!FORM.prov){$("#proposal-status").textContent="Set up an AI tool before approving this plan.";go(1);return}
+    $("#approve").disabled=true;
+    try{
+      const result=await post("/api/plan/start",{phase:"plan",notes:$("#notes").value,provider:FORM.prov||"claude",model:FORM.model,effort:FORM.effort,existing:FORM.workspacePlan||FORM.mode==="existing"});
+      if(!result.ok){$("#proposal-status").textContent=result.error;return}
+      JOB={id:result.job,phase:"plan"};watchJob();
+    }catch{$("#proposal-status").textContent="Relay couldn’t start the plan. Try again."}
+    finally{const approve=$("#approve");if(approve)approve.disabled=false}
+  }}
 async function drawPlanDone(){
   WZ=await get("/api/wizard");const p=WZ.project,d=await get("/api/docs");
   const req=p.requires||[];
@@ -387,9 +547,10 @@ async function drawPlanDone(){
     <details style="margin:8px 0"><summary><b>Read the plan</b></summary><pre class="doc">${esc(d.plan)}</pre></details>
     <h2 style="margin-top:14px">Programs this project needs on your computer</h2>
     ${req.length?req.map(r=>`<div class="tool"><span class="nm"><b>${esc(r.name)}</b></span><span>${r.found?'<span class="ok">✓ found</span>':`<span class="warnc">✗ missing</span> ${r.canInstall?`<button data-tc="${r.id}" class="pri">Install</button> <span class="mute small"><code>${esc(r.how)}</code></span>`:`<a href="${esc(r.url)}" target="_blank">download it</a>`}`}</span></div>`).join(""):'<div class="mute">The plan does not name any extra programs.</div>'}
-    <div class="nav"><button onclick="go(2)">Back</button><button id="next3" class="pri">Continue</button></div></div>`;
+    <div class="nav"><button id="plan-back">Back</button><button id="next3" class="pri">${FORM.workspacePlan?"Open tasks":"Continue"}</button></div></div>`;
+  $("#plan-back").onclick=FORM.workspacePlan?backToTasks:()=>go(2);
   document.querySelectorAll("[data-tc]").forEach(b=>b.onclick=async()=>{const r=await post("/api/install-toolchain",{id:b.dataset.tc});alert(r.ok?r.message:r.error);fastPoll()});
-  $("#next3").onclick=()=>{const miss=req.filter(r=>!r.found);if(miss.length&&!confirm("These are still missing: "+miss.map(m=>m.name).join(", ")+". The tests may fail without them. Continue anyway?"))return;go(4)}}
+  $("#next3").onclick=()=>{if(FORM.workspacePlan){backToTasks();return}const miss=req.filter(r=>!r.found);if(miss.length&&!confirm("These are still missing: "+miss.map(m=>m.name).join(", ")+". The tests may fail without them. Continue anyway?"))return;go(4)}}
 
 /* ------------------------------------------------------------ step 4: which AI builds what */
 async function taskTable(sel,onchange,opts){
@@ -404,16 +565,17 @@ async function taskTable(sel,onchange,opts){
   const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done",approved:"approved by you"};
   const actions=k=>{const c=catOf(k,cur);if(!acts)return"";
     const cancel=res.mode==="board"?(k.queuedNext?` <button data-act="cancel" data-kind="next" title="Take it off the priority list">✕ next</button>`:"")+(k.fixRequested?` <button data-act="cancel" data-kind="fix" title="Withdraw your feedback">✕ fix</button>`:""):"";
+    if(c==="review"&&(opts.hideAI||res.mode==="files"))return `<a class="btnlink" href="/digest#c-${esc(k.id)}">Review task</a>`;
     if(c==="review")return`<button class="go" data-act="approve">Looks good</button> <button data-act="changes">Needs changes…</button>${cancel}`;
     if(c==="building")return`<button data-act="changes">Fix…</button>${cancel}`;
     if(c==="progress")return`<button data-act="next">Build next</button> <button data-act="changes">Fix…</button>${cancel}`;
     if(c==="new")return`<button data-act="next">Build next</button>${cancel}`;
     return`<button data-act="changes">Reopen…</button>${cancel}`};
   const tags=k=>(k.queuedNext?' <span class="badge todo">next</span>':"")+(k.fixRequested?' <span class="badge owner">fix requested</span>':"");
-  $(sel).innerHTML=t.length?`<div style="overflow-x:auto"><table class="tt"><tr class="h"><td>Task</td><td>Status</td>${acts?"<td></td>":""}<td>AI</td><td>Model</td><td>Reasoning</td></tr>`+t.map(k=>{const c=catOf(k,cur);return`<tr data-t="${k.id}"><td style="max-width:280px"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
+  $(sel).innerHTML=t.length?`<div style="overflow-x:auto"><table class="tt"><tr class="h"><td>Task</td><td>Status</td>${acts?"<td></td>":""}${opts.hideAI?"":"<td>AI</td><td>Model</td><td>Reasoning</td>"}</tr>`+t.map(k=>{const c=catOf(k,cur);return`<tr data-t="${k.id}"><td style="max-width:280px"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
     <td style="white-space:nowrap"><span class="badge ${c==="building"||c==="progress"||c==="new"?"todo":c==="review"?"owner":"done"}">${lab[c]}</span>${tags(k)}<div class="row small mute" style="width:110px;margin-top:3px"><span>${k.completion}%</span><span>${k.gatesDone}/${k.gates}</span></div><div style="width:110px">${bar(k.completion,"task")}</div></td>
     ${acts?`<td style="white-space:nowrap">${actions(k)}</td>`:""}
-    <td><select data-f="p">${provs.map(x=>`<option value="${x}" ${x===k.rec.provider?"selected":""}>${x||"(follow the setting)"}</option>`).join("")}</select></td><td><select data-f="m"></select></td><td><select data-f="e"></select></td></tr>`}).join("")+"</table></div>"+
+    ${opts.hideAI?"":`<td><select aria-label="AI for ${esc(k.id)}" data-f="p">${provs.map(x=>`<option value="${esc(x)}" ${x===k.rec.provider?"selected":""}>${esc(x||"(follow the setting)")}</option>`).join("")}</select></td><td><select aria-label="Model for ${esc(k.id)}" data-f="m"></select></td><td><select aria-label="Reasoning for ${esc(k.id)}" data-f="e"></select></td>`}</tr>`}).join("")+"</table></div>"+
     (opts.limit&&total>t.length?`<div style="margin-top:10px"><button id="tmore">Show more (${total-t.length} left)</button></div>`:""):'<div class="mute">No tasks here.</div>';
   const mb=$("#tmore");if(mb&&opts.more)mb.onclick=opts.more;
   const refresh=()=>{if(opts.filter&&$("#tab-tasks")&&!$("#tab-tasks").hidden)drawTasksTab();else taskTable(sel,onchange,opts)};
@@ -422,12 +584,14 @@ async function taskTable(sel,onchange,opts){
       if(!prov||!c){ms.innerHTML="<option value=''>–</option>";es.innerHTML="<option value=''>–</option>";ms.disabled=es.disabled=true;return}
       ms.disabled=false;ms.innerHTML=selOpts(c.models,keepM||defaultModel(prov),"");const ef=effortsFor(prov,ms.value);
       if(!ef.length){es.innerHTML="<option value=''>default</option>";es.disabled=true}else{es.disabled=false;es.innerHTML=selOpts(ef.map(x=>({id:x,label:x})),keepE||"",'<option value="">default</option>')}};
-    fill(k.rec.model,k.rec.effort);
-    const save=async()=>{const prov=tr.querySelector("[data-f=p]").value;await post("/api/task/recommend",{task:k.id,provider:prov,model:prov?tr.querySelector("[data-f=m]").value:"",effort:prov?tr.querySelector("[data-f=e]").value:""});if(onchange)onchange()};
-    tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save;
+    if(!opts.hideAI){
+      fill(k.rec.model,k.rec.effort);
+      const save=async()=>{const prov=tr.querySelector("[data-f=p]").value;await post("/api/task/recommend",{task:k.id,provider:prov,model:prov?tr.querySelector("[data-f=m]").value:"",effort:prov?tr.querySelector("[data-f=e]").value:""});if(onchange)onchange()};
+      tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save;
+    }
     tr.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;let r;
       if(a==="approve"){if(!confirm("Mark "+k.id+" as OK?"+NL+NL+"This ticks your own check on the task and finishes it. You are the one saying it is fine."))return;r=await post("/api/task/approve",{task:k.id})}
-      else if(a==="changes"){const note=prompt("What should be fixed or changed in "+k.id+"?"+NL+"Be specific: the AI must address exactly this.");if(!note)return;r=await post("/api/task/changes",{task:k.id,note})}
+      else if(a==="changes"){const note=prompt("What should be fixed or changed in "+k.id+"?"+NL+"Be specific: the AI must address exactly this.");if(!note)return;r=await post(res.mode==="files"?"/api/task/feedback":"/api/task/changes",{task:k.id,note})}
       else if(a==="cancel"){r=await post("/api/task/cancel",{task:k.id,kind:b.dataset.kind})}
       else{r=await post("/api/task/next",{task:k.id});if(r.ok)alert(k.id+" will be built next (when the relay picks its next task).")}
       if(!r.ok){alert(r.error);return}refresh();tick()})})}
@@ -457,7 +621,7 @@ async function stepStart(){
 function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart][STEP]()}
 
 /* ------------------------------------------------------------ dashboard */
-let TAB="overview",TT={filter:"todo",q:"",limit:40,t:null};
+let TAB="overview",TT={filter:"todo",q:"",limit:40,t:null,showAI:false,openTask:false};
 function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.tab===n));["overview","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
   if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();loadSettings()}}
 function dashInit(){tick();showTab(TAB)}
@@ -475,17 +639,93 @@ async function drawTasksTab(){
   const res=await get("/api/tasks"),cur=(WZ&&WZ.project&&WZ.project.running)?res.current:"",counts={review:0,progress:0,new:0,done:0,building:0,approved:0};res.tasks.forEach(k=>counts[catOf(k,cur)]++);
   if(!TT.touched)TT.filter=counts.review?"review":"todo";
   counts.done+=counts.approved||0;const chip=(v,label,n)=>`<button class="chip ${TT.filter===v?"on":""}" data-f="${v}">${label} <b>${n}</b></button>`;
-  $("#tab-tasks").innerHTML=`<div class="card">
+  const addTask=res.canAdd?`<details id="new-task" class="card" ${TT.openTask||!res.tasks.length?"open":""}><summary>Add a task</summary>
+    <form id="task-create" class="basic-form">
+      <label class="l" for="task-title">Task name</label><input id="task-title" maxlength="100" required>
+      <label class="l" for="task-description">What should change?</label><textarea id="task-description" maxlength="3000" required placeholder="Add a contact form that confirms when a message is sent."></textarea>
+      <label class="l" for="task-review">What should you try when it’s ready? <span class="mute small">(optional)</span></label><input id="task-review" maxlength="300">
+      <div class="row2" style="margin-top:12px"><button class="pri" type="submit">Save task</button><span id="task-create-status" role="status"></span></div>
+    </form></details>`:"";
+  const pendingPlan=WZ.project.localWorkspace&&(!WZ.project.hasPlan||!WZ.project.testCommand);
+  $("#tab-tasks").innerHTML=`<div class="row2" style="margin-bottom:12px">
+    ${pendingPlan?'<button id="tasks-plan">Plan with AI</button>':""}<a class="btnlink" href="/digest">Review work</a>
+    </div>`+addTask+`<div class="card">
     <div class="row2" style="margin-bottom:10px">${chip("review","Needs your review",counts.review)}${chip("progress","In progress",counts.progress+counts.building)}${chip("new","Not started",counts.new)}${chip("done","Done",counts.done)}${chip("all","All",res.tasks.length)}</div>
-    <div class="row2" style="margin-bottom:10px"><input id="tt_q" size="28" placeholder="Search tasks" value="${esc(TT.q)}"><span class="mute small" id="tt_count"></span></div>
-    <div class="mute small" style="margin-bottom:8px">${res.mode==="files"?"<b>Needs your review</b> = the AI finished every automatic check and only your own check is left. <b>Looks good</b> marks it done; <b>Needs changes</b> or <b>Fix</b> adds your note as a new check and the relay builds the fix next; <b>Build next</b> moves a task to the front.":res.mode==="board"?"This project keeps its live status in its own board, so the percentages come from its task files. Your button clicks are written to <code>OWNER-REQUESTS.md</code>, which the relay's dispatcher reads at the start of every round: <b>Build next</b> is a priority, <b>Fix</b> is your feedback (the task stays open until you approve it), <b>Looks good</b> records your approval. The <i>Human signed off</i> box in the board is still yours to tick.":"This project has no relay yet."}</div>
+    <div class="row2" style="margin-bottom:10px"><input id="tt_q" aria-label="Search tasks" size="28" placeholder="Search tasks" value="${esc(TT.q)}"><span class="mute small" id="tt_count"></span><label class="small"><input type="checkbox" id="show-task-ai" ${TT.showAI?"checked":""}> Show AI assignments</label></div>
+    ${res.mode==="board"?'<p class="mute small">Final signoff is made on this project’s task board.</p>':""}
+    <div id="tasks-status" role="status" class="small"></div>
     <div id="tasktable">loading…</div></div>`;
   document.querySelectorAll("#tab-tasks .chip").forEach(c=>c.onclick=()=>{TT.filter=c.dataset.f;TT.touched=true;TT.limit=40;drawTasksTab()});
   $("#tt_q").oninput=e=>{TT.q=e.target.value;TT.limit=40;clearTimeout(TT.t);TT.t=setTimeout(drawTable,250)};
+  $("#show-task-ai").onchange=event=>{TT.showAI=event.target.checked;drawTable(res)};
+  if($("#tasks-plan"))$("#tasks-plan").onclick=showWorkspacePlanner;
+  if($("#task-create")){
+    $("#task-create").onsubmit=event=>saveLocalTask(event,res.project);
+    if(TT.openTask){$("#task-title").focus();TT.openTask=false}
+  }
   drawTable(res)}
-function drawTable(data){taskTable("#tasktable",null,{filter:TT.filter,q:TT.q,limit:TT.limit,count:"#tt_count",data:data&&data.tasks?data:null,more:()=>{TT.limit+=40;drawTable()}})}
-async function drawDashTools(){SETUP=await get("/api/setup");$("#dashtools").innerHTML=SETUP.tools.map(toolRow).join("");wireToolButtons($("#dashtools"));
+async function saveLocalTask(event,project){
+  event.preventDefault();
+  const button=event.currentTarget.querySelector("button[type=submit]"),status=$("#task-create-status");
+  const title=$("#task-title").value,description=$("#task-description").value,review=$("#task-review").value;
+  button.disabled=true;status.textContent="Saving task…";
+  try{
+    const result=await post("/api/task/add",{project,title,description,review});
+    if(!result.ok){status.textContent=result.error;return}
+    TT.filter="all";TT.q="";TT.touched=true;await drawTasksTab();
+    $("#tasks-status").textContent=result.warning||"Task saved.";
+    $("#new-task").querySelector("summary").focus();
+  }catch{status.textContent="Relay could not save the task. Try again."}
+  finally{button.disabled=false}
+}
+function drawTable(data){taskTable("#tasktable",null,{hideAI:!TT.showAI,filter:TT.filter,q:TT.q,limit:TT.limit,count:"#tt_count",data:data&&data.tasks?data:null,more:()=>{TT.limit+=40;drawTable()}})}
+async function drawDashTools(){refreshProjectAccess();SETUP=await get("/api/setup");$("#dashtools").innerHTML=SETUP.tools.map(toolRow).join("");wireToolButtons($("#dashtools"));
   if(!$("#ca_name")){$("#customarea").innerHTML='<details style="margin-top:8px"><summary><b>Add another AI</b></summary><div id="customarea2"></div></details>';renderCustom("#customarea2")}}
+let accessBusy=false;
+async function refreshProjectAccess(){
+  if(accessBusy)return;
+  const project=WZ.project.path,status=$("#project-access-status");
+  if(status.dataset.project!==project){status.textContent="";status.dataset.project=project||""}
+  const access=await get("/api/project/access").catch(()=>null);
+  if(access&&project===WZ.project.path&&!accessBusy)drawProjectAccess(access)
+}
+function drawProjectAccess(access){
+  $("#project-access").hidden=!access.supported&&!access.updateNeeded;
+  $("#project-access-policy").hidden=!access.supported;
+  $("#project-access-only").checked=!!access.checkedOnly;
+  $("#project-access-note").textContent=access.supported
+    ?"Each check makes one short AI call using a temporary folder. Failed tools are skipped. Other tools remain available unless you require a passing check."
+    :"Use Update Relay on the project dashboard to enable access checks.";
+  const labels={passed:"Access confirmed",failed:"Check did not pass",unchecked:"Unchecked",missing:"Tool isn’t installed"};
+  $("#project-access-tools").innerHTML=(access.tools||[]).map(tool=>
+    `<div class="tool"><span class="nm"><b>${esc(tool.name)}</b><br><span class="small ${tool.status==="passed"?"ok":tool.status==="failed"?"warnc":"mute"}">${labels[tool.status]}</span></span>
+    <button data-access-check="${tool.id}" data-missing="${tool.status==="missing"}" aria-label="Check ${tool.name} access" ${tool.status==="missing"?"disabled":""}>Check access</button></div>`).join("");
+  $("#project-access-tools").querySelectorAll("[data-access-check]").forEach(button=>button.onclick=()=>changeProjectAccess("check",{provider:button.dataset.accessCheck},button));
+  $("#project-access-only").onchange=event=>changeProjectAccess("policy",{checkedOnly:event.target.checked},event.target)
+}
+async function changeProjectAccess(action,fields,control){
+  const project=WZ.project.path,status=$("#project-access-status");
+  accessBusy=true;
+  $("#project-access").querySelectorAll("button,input").forEach(element=>element.disabled=true);
+  status.textContent=action==="check"?"Checking access…":"Saving…";
+  try{
+    const result=await post("/api/project/access/"+action,{project,...fields});
+    if(project!==WZ.project.path)return;
+    if(!result.ok){status.textContent=result.error;if(action==="policy")control.checked=!fields.checkedOnly;return}
+    drawProjectAccess(result.access);
+    status.textContent=action==="check"?(result.passed?"Access confirmed.":"The AI didn’t complete the file check."):"Setting saved.";
+  }catch{
+    if(project===WZ.project.path){status.textContent="Relay couldn’t finish. Try again.";if(action==="policy")control.checked=!fields.checkedOnly}
+  }finally{
+    accessBusy=false;
+    $("#project-access-only").disabled=false;
+    $("#project-access-tools").querySelectorAll("button").forEach(button=>button.disabled=button.dataset.missing==="true");
+    if(project===WZ.project.path){
+      const focus=action==="check"?$("#project-access-tools").querySelector(`[data-access-check="${fields.provider}"]`):control;
+      if(focus&&!focus.disabled)focus.focus();
+    }else refreshProjectAccess();
+  }
+}
 const REQ_TEXT={
   "commit-sensitive":r=>({title:"The AI wants to save secret-looking files in your project's history",risk:"These files may contain passwords, keys or tokens. Once saved in git they are hard to remove and travel with the project if you ever upload it.",yes:"Accept: save them",no:"Deny: never save them (they are added to .gitignore)"}),
   "push":r=>({title:"The AI wants to upload (push) your work to your online repository",risk:"This sends the work branch to the online copy. It never touches main and is never forced.",yes:"Accept: push it",no:"Deny: keep it on this computer"}),
@@ -504,28 +744,33 @@ function renderRequests(list){
   document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=async()=>{const id=b.dataset.id,n=document.querySelector('[data-note="'+id+'"]');
     const r=await post("/api/requests/decide",{id,decision:b.dataset.dec,note:n?n.value:""});if(!r.ok)alert(r.error);tick()})}
 function render(s){
+  $("#tasksource").textContent=WZ?.project?.script==="relay.sh"?"This project uses its own task board.":"Tasks and reviews are saved on this computer.";
+  renderRuntime(s.runtime||{},s.relay||"");
   off=Date.now()/1000-s.now;renderRequests(s.requests||[]);
   if(s.noProject){$("#status").textContent="NO PROJECT";$("#status").className="pill stop";return}
   const ph=s.phase;
   $("#status").textContent=!s.alive?"STOPPED":ph&&ph.kind==="LIMIT"?"WAITING":"RUNNING";
   $("#status").className="pill "+(!s.alive?"stop":ph&&ph.kind==="LIMIT"?"wait":"run");
-  $("#meta").textContent=`${s.branch||""}${s.round?" · round "+s.round:""}`;
+  $("#meta").textContent=WZ.project.name||"";
   let n="";
   if(ph){const live=ph.kind!=="STOPPED";
     const el=(Date.now()/1000-off)-ph.since, rem=ph.estimate-el, frac=ph.estimate?el/ph.estimate:0;
     n=`<div class="big">${esc(ph.label)}</div><div class="mute">${esc(s.task||"")}</div>`;
-    if(live){n+=bar(frac*100)+`<div class="row"><span>elapsed ${fmt(el)}</span><span>${rem>=0?"about "+fmt(rem)+" left":"over estimate by "+fmt(rem)}${ph.until?" · resets about "+ph.until:""}</span></div>`;
+    if(live){n+=bar(frac*100)+`<div class="row"><span>elapsed ${fmt(el)}</span><span>${rem>=0?"about "+fmt(rem)+" left":"over estimate by "+fmt(rem)}${ph.retryAt?" · next retry "+new Date(ph.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</span></div>`;
       if(s.roundDoneIn!=null)n+=`<div class="mute">round done in about ${fmt(s.roundDoneIn-(Date.now()/1000-off-s.now))}</div>`;
       if(ph.kind==="SUITE"&&s.testCheck.count)n+=`<div class="mute">check ${s.testCheck.count}: ${esc(s.testCheck.label)}</div>`}
   }else n=s.alive?"starting…":"The relay is not running. Press Start.";
+  if(WZ.project.localWorkspace&&(!WZ.project.hasPlan||!WZ.project.testCommand)){
+    n='<div class="big">Your task list is ready</div><div class="mute">Add work in your own words. Use Plan with AI when you’re ready to prepare the build.</div>';
+  }
   $("#now").innerHTML=n;
   $("#providers").innerHTML=s.providers.map(p=>{
     const l=p.live||{},run=l.running,w=(p.usage&&p.usage.windows)||[];
     const urows=w.map(x=>{const left=x.resetsAt?x.resetsAt-Date.now()/1000:null;return `<div class="urow" title="${esc(x.label)}${left>0?" · resets in "+fmt(left):""}"><span>${esc(x.label)}</span>${bar(x.usedPercent)}<b>${Math.round(x.usedPercent)}%</b></div>`}).join("");
     const reset=w.length?(()=>{const x=w.reduce((m,y)=>(y.resetsAt&&(!m||y.resetsAt<m.resetsAt))?y:m,null);const left=x&&x.resetsAt?x.resetsAt-Date.now()/1000:0;return left>0?`<div class="mute" style="font-size:11px">${esc(x.label)} resets in ${fmt(left)}</div>`:""})():"";
     const lastAct=run?((l.actions||[]).slice(-1)[0]):"";
-    const lim=p.lastLimit?`<div class="warnc" style="font-size:12px">hit its limit ${p.lastLimit.ts}${p.lastLimit.until?", back about "+p.lastLimit.until:""}</div>`:"";
-    const fb=p.fallbackBuildsToday?`<div class="mute" style="font-size:12px">${p.fallbackBuildsToday} backup build(s) today</div>`:"";
+    const lim=p.lastLimit?`<div class="warnc" style="font-size:12px">hit its limit ${p.lastLimit.ts}${p.lastLimit.retryAt>Date.now()/1000?", retry "+new Date(p.lastLimit.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</div>`:"";
+    const fb=p.fallbackBuildsToday?`<div class="mute" style="font-size:12px">${p.fallbackBuildsToday} backup call(s) today</div>`:"";
     const model=(p.model||"").replace(/^opencode\//,"");
     return `<div class="aic" style="--c:${p.color}" title="${esc(p.note||"")}"><div class="aih"><span class="dot ${run?"on":""}"></span>${esc(p.name)}</div>
       <div class="mute small">${esc(p.role)}${model?" · "+esc(model):""}</div>
@@ -539,6 +784,57 @@ function render(s){
   $("#idle").innerHTML=s.idleChores.map(t=>`<li>${esc(t)}</li>`).join("")||'<li class="mute">none run yet (they run while every AI is out of usage)</li>'}
 async function tick(){if(MODE!=="dash")return;try{const st=await get("/api/state");WZ=await get("/api/wizard");render(st);renderNextTasks(st);headerButtons()}catch(e){$("#status").textContent="NO DATA";$("#status").className="pill stop"}}
 
+let notificationProject="",seenRelayEvents=new Set(),nativeNotifications=false;
+const notificationButton=$("#btnnotify");
+get("/api/notifications/status").then(status=>{nativeNotifications=status.native;refreshNotificationLabel()}).catch(()=>{});
+function refreshNotificationLabel(){
+  notificationButton.textContent=localStorage.getItem("relay-notifications")==="on"?"Turn off desktop notifications":"Enable desktop notifications";
+}
+refreshNotificationLabel();
+function renderRuntime(runtime,project){
+  if(runtime.error){$("#runtime-state").textContent=runtime.error;return}
+  const calls=runtime.calls||[],events=runtime.events||[],last=events.slice(-6).reverse();
+  const phaseLabel={"notion-review-ready":"Notion review ready to resume","notion-review-in-flight":"Notion review started. If stopped, reconcile the board before retrying."}[runtime.phase]||runtime.phase||"idle";
+  $("#runtime-state").textContent=runtime.supported?`Checkpoint: ${phaseLabel}${runtime.task?" · "+runtime.task:""}`:"This runner needs checkpoint integration before it can resume saved work.";
+  $("#runtime-events").innerHTML=last.map(e=>`<p class="small ${e.kind==="blocked"?"warnc":"mute"}">${esc(new Date(e.at*1000).toLocaleTimeString())} · ${esc(e.task||"")} ${esc(e.message)}</p>`).join("");
+  $("#runtime-calls").innerHTML='<thead><tr>'+['Task / role','Provider','Requested → reported model','Elapsed','Result / files'].map(text=>'<th scope="col">'+text+'</th>').join('')+'</tr></thead><tbody>'+calls.slice(-20).reverse().map(c=>`<tr><td>${esc(c.task)}<br>${esc(c.role)}</td><td>${esc(c.provider)}</td><td>${esc(c.requestedModel)} → ${esc(c.reportedModel||"not reported")}</td><td>${fmt((c.endedAt||Date.now()/1000)-c.startedAt)}</td><td>${esc(c.outcome)}${c.exitCode!=null?" ("+esc(c.exitCode)+")":""}${c.idleWarning?'<br><span class="warnc">No new output for '+fmt(c.idleSeconds)+'. May still be working.</span>':""}${(c.changedFiles||[]).length?'<details><summary>'+c.changedFiles.length+' changed files</summary>'+c.changedFiles.map(esc).join('<br>')+'</details>':""}</td></tr>`).join("")+'</tbody>';
+  if(notificationProject!==project){notificationProject=project;seenRelayEvents=new Set(events.map(e=>e.id));return}
+  for(const event of events){if(seenRelayEvents.has(event.id))continue;seenRelayEvents.add(event.id);
+    if(!["blocked","needs_review","task_done","review_clip"].includes(event.kind))continue;
+    $("#runtime-notice").textContent=event.message;
+    if(localStorage.getItem("relay-notifications")!=="on")continue;
+    if(nativeNotifications){
+      post("/api/notifications/show",{id:event.id}).then(result=>{
+        if(!result.ok)$("#runtime-notice").textContent="Desktop delivery failed. "+event.message;
+      }).catch(()=>{$("#runtime-notice").textContent="Desktop delivery failed. "+event.message});
+    }else if("Notification" in window&&Notification.permission==="granted"){
+      try{new Notification("Agent Relay"+(event.task?" · "+event.task:""),{body:event.message,tag:event.id})}
+      catch{$("#runtime-notice").textContent="Desktop delivery failed. "+event.message}
+    }
+  }
+}
+notificationButton.onclick=async()=>{
+  let enabled=false;
+  if(localStorage.getItem("relay-notifications")!=="on"){
+    try{
+      if(nativeNotifications)enabled=(await post("/api/notifications/show",{test:true})).ok;
+      else if("Notification" in window)enabled=(await Notification.requestPermission())==="granted";
+    }catch{}
+  }
+  localStorage.setItem("relay-notifications",enabled?"on":"off");
+  refreshNotificationLabel();
+  $("#runtime-notice").textContent=enabled?"Notifications enabled for finished, blocked and review-ready tasks.":"Desktop notifications are off. Events remain in this panel.";
+};
+$("#btnworktree").onclick=async()=>{
+  if(!confirm("Create a separate branch and workspace from the last commit? Unsaved edits stay here. This does not start a worker."))return;
+  const result=await post("/api/worktrees/create");
+  $("#runtime-notice").textContent=result.ok?result.message+" "+result.path:(result.error||"Could not create workspace");
+};
+$("#btnretry").onclick=async()=>{
+  if(!confirm("Retry this task using the current edits? This resets its task call/failure budget, keeps daily provider caps, and preserves unsaved work. Stop the worker first. This does not approve any task gate."))return;
+  const result=await post("/api/runtime/retry");$("#runtime-notice").textContent=result.ok?"Retry approved. Press Start to continue the task.":result.error;
+};
+
 /* ------------------------------------------------------------ settings (dashboard) */
 const ROLES=[["dispatcher","Dispatcher (picks tasks)"],["builder","Builder"],["reviewer","Reviewer"],["cleaner","Cleaner (optional)"]];
 function fillRole(r,keepModel,keepEffort){
@@ -548,31 +844,46 @@ function fillRole(r,keepModel,keepEffort){
   const autoM=isBuilder?'<option value="auto">auto (follow each task)</option>':"";
   ms.innerHTML=selOpts((CAT[prov]||{models:[]}).models,keepModel,autoM);if(keepModel==="auto"&&autoM)ms.value="auto";
   const ef=effortsFor(prov,ms.value);
-  if(!ef.length){es.innerHTML="<option value=''>default</option>";es.disabled=true;return}
+  if(!ef.length){es.innerHTML=keepEffort?selOpts([{id:keepEffort,label:keepEffort}],keepEffort):"<option value=''>default</option>";es.disabled=!keepEffort;return}
   const autoE=isBuilder?'<option value="auto">auto (follow each task)</option>':"";
   es.innerHTML=selOpts(ef.map(x=>({id:x,label:x})),keepEffort,autoE);if(keepEffort==="auto"&&autoE)es.value="auto"}
 async function loadSettings(){
-  CAT=await get("/api/models");const s=await get("/api/settings");SET=s;if(s.error)return;const e=s.effective;
+  const models=get("/api/models",3000).catch(()=>null);
+  let s;try{s=await get("/api/settings")}catch(error){$("#setform").textContent="Settings could not load. Press Reload to retry.";return}
+  SET=s;if(s.error){$("#setform").textContent=s.error;return}const e=s.effective;
+  const catalog=await models;
+  CAT=catalog||CAT||Object.fromEntries(s.providers.map(p=>[p,{models:[],efforts:[]}]));
+  for(const p of s.providers){if(!CAT[p])CAT[p]={models:[],efforts:[]}}
   $("#setmsg").innerHTML=(s.errors||[]).map(x=>`<div class="bad">✗ ${esc(x)}</div>`).join("")+(s.warnings||[]).map(x=>`<div class="warnc">${esc(x)}</div>`).join("");
   const fm=e.models||{},N=[1,2,3,5,10,15,20,30,50];
   $("#setform").innerHTML=ROLES.map(([r,l])=>{const v=e.roles[r]||{provider:"none"};
     return `<div class="srow"><b>${l}</b><select id="p_${r}">${optList(["none",...s.providers],v.provider||"none")}</select><select id="m_${r}"></select><select id="e_${r}"></select></div>`}).join("")
-  +`<div class="srow"><b>Backups</b><span style="grid-column:2/-1">${["copilot","opencode","codex"].map(f=>`<label style="margin-right:12px"><input type="checkbox" id="fb_${f}" ${e.fallbackBuilders.includes(f)?"checked":""}> ${f}</label>`).join("")} · max builds per day <select id="fbmax">${N.map(n=>`<option ${n===e.fallbackMaxPerDay?"selected":""}>${n}</option>`).join("")}${N.includes(e.fallbackMaxPerDay)?"":`<option selected>${e.fallbackMaxPerDay}</option>`}</select></span></div>
+  +`<div class="srow"><b>Builder backups</b><span style="grid-column:2/-1">${["copilot","opencode","codex"].map(f=>`<label style="margin-right:12px"><input type="checkbox" id="fb_${f}" ${e.fallbackBuilders.includes(f)?"checked":""}> ${f}</label>`).join("")} · max backup calls per day <select id="fbmax">${N.map(n=>`<option ${n===e.fallbackMaxPerDay?"selected":""}>${n}</option>`).join("")}${N.includes(e.fallbackMaxPerDay)?"":`<option selected>${e.fallbackMaxPerDay}</option>`}</select></span></div>
+   ${["dispatcher","reviewer"].map(role=>{const selected=(e.fallbackRoles||{})[role]||[];
+     const order=[...new Set([...selected,"codex","copilot","opencode","claude"])];
+     return `<div class="srow"><b>${role==="dispatcher"?"Dispatcher backups":"Reviewer backups"}</b><span style="grid-column:2/-1">${order.map(p=>`<label style="margin-right:12px"><input type="checkbox" data-role-backup="${role}" value="${p}" ${selected.includes(p)?"checked":""}> ${p}</label>`).join("")}</span></div>`}).join("")}
    <div class="srow"><b>Backup models</b><span style="grid-column:2/-1">Copilot <select id="fm_copilot">${selOpts(CAT.copilot.models,fm.copilot)}</select> · OpenCode <select id="fm_opencode">${selOpts(CAT.opencode.models,fm.opencode)}</select></span></div>
    <div class="srow"><b>AI asks for permission</b><span style="grid-column:2/-1"><label style="margin-right:14px"><input type="radio" name="apmode" value="ask" ${(e.approvals||{}).mode!=="auto"?"checked":""}> I decide (Accept / Deny buttons)</label><label><input type="radio" name="apmode" value="auto" ${(e.approvals||{}).mode==="auto"?"checked":""}> An AI judge decides</label></span></div>
    <div class="srow" id="judgerow"><b>The judge</b><select id="p_judge">${optList(["reviewer",...s.providers],((e.approvals||{}).judge||{}).provider||"reviewer")}</select><select id="m_judge"></select><select id="e_judge"></select></div>
    <div class="srow"><b></b><span style="grid-column:2/-1"><label><input type="checkbox" id="ap_secrets" ${(e.approvals||{}).autoSecrets?"checked":""}> Let the judge also decide about secret-looking files and uploads <span class="warnc small">(not recommended: otherwise those always wait for you)</span></label><div class="mute small">The judge says approve, deny, or "ask" when only you can know. Everything it decides is listed under Recent permission decisions.</div></span></div>
-   <div class="srow"><b>Idle chores</b><span style="grid-column:2/-1">${[["backend","Java backend tests"],["digest","Review digest"]].map(([k,l])=>`<label style="margin-right:12px"><input type="checkbox" id="ic_${k}" ${(e.idleChores||[]).includes(k)?"checked":""}> ${l}</label>`).join("")}<span class="mute small">(no AI; they run while every AI is out of usage)</span></span></div>`;
+   <div class="srow"><b>Idle chores</b><span style="grid-column:2/-1">${[["backend","Java backend tests"],["digest","Review digest"]].map(([k,l])=>`<label style="margin-right:12px"><input type="checkbox" id="ic_${k}" ${(e.idleChores||[]).includes(k)?"checked":""}> ${l}</label>`).join("")}<span class="mute small">(no AI; they run while every AI is out of usage)</span></span></div>
+   <details><summary>Routing capabilities and run limits</summary><p class="small">Declare only capabilities you have verified for each tool. Add required capabilities with a REQUIRES: line in a task, or requiredCapabilities in relay.project.json. A connector is not assumed to transfer between AIs.</p>
+   ${s.providers.map(p=>`<label class="srow"><b>${esc(p)} capabilities</b><input style="grid-column:2/-1" data-capabilities="${esc(p)}" value="${esc(((e.capabilities||{})[p]||[]).join(", "))}" placeholder="repository, shell, notion"></label>`).join("")}
+   ${Object.entries(e.limits||{}).map(([key,value])=>`<label class="srow"><b>${esc(({callsPerTask:"Calls per task",callsPerProviderDay:"Calls per provider/day",failuresPerTask:"Failures per task",sameFailureLimit:"Repeated identical failures",timeoutSeconds:"Call timeout (seconds)",idleWarningSeconds:"No-output warning (seconds)"})[key]||key)}</b><input type="number" min="1" max="86400" data-limit="${esc(key)}" value="${esc(value)}"></label>`).join("")}</details>`;
   const jd=(e.approvals||{}).judge||{};fillRole("judge",jd.model&&jd.model!=="auto"?jd.model:"",jd.effort&&jd.effort!=="auto"?jd.effort:"");$("#p_judge").onchange=()=>fillRole("judge","","");$("#m_judge").onchange=()=>fillRole("judge",$("#m_judge").value,$("#e_judge").value);
   const jr=()=>{$("#judgerow").style.opacity=document.querySelector("[name=apmode]:checked").value==="auto"?1:.45};document.querySelectorAll("[name=apmode]").forEach(r=>r.onchange=jr);jr();
   ROLES.forEach(([r])=>{const v=e.roles[r]||{provider:"none"};fillRole(r,v.model||(r==="builder"?"auto":""),v.effort||(r==="builder"?"auto":""));
     $("#p_"+r).onchange=()=>fillRole(r,"","");$("#m_"+r).onchange=()=>{fillRole(r,$("#m_"+r).value,$("#e_"+r).value)}});
-  $("#setnote").textContent="Claude is verified for dispatcher and reviewer; other models there are experimental."}
+  $("#setnote").textContent="Backups run in the order shown. Review skips any model used to build the current round. The daily cap covers backup calls across all roles.";
+  if(!catalog)$("#setmsg").insertAdjacentHTML("beforeend",'<div class="warnc">Model discovery timed out. Current settings are available; Reload retries discovery.</div>')}
 async function saveSettings(){
   const roles={};
   for(const [r] of ROLES){const prov=$("#p_"+r).value;const o={provider:prov};if(prov!=="none"){const m=$("#m_"+r).value.trim(),ef=$("#e_"+r).disabled?"":$("#e_"+r).value.trim();if(m)o.model=m;if(ef)o.effort=ef;
     const old=((SET.file||{}).roles||{})[r]||{};if(old.experimental||!(SET.builtin||[]).includes(prov))o.experimental=true}roles[r]=o}
-  const body={roles,fallbackBuilders:["copilot","opencode","codex"].filter(f=>$("#fb_"+f).checked),fallbackMaxPerDay:parseInt($("#fbmax").value||"10",10),idleChores:["backend","digest"].filter(k=>$("#ic_"+k).checked)};
+  const fallbackRoles=Object.fromEntries(["dispatcher","reviewer"].map(role=>[role,Array.from(document.querySelectorAll('[data-role-backup="'+role+'"]:checked')).map(x=>x.value)]));
+  const body={roles,fallbackBuilders:["copilot","opencode","codex"].filter(f=>$("#fb_"+f).checked),fallbackRoles,fallbackMaxPerDay:parseInt($("#fbmax").value||"10",10),idleChores:["backend","digest"].filter(k=>$("#ic_"+k).checked)};
+  body.capabilities=Object.fromEntries(Array.from(document.querySelectorAll("[data-capabilities]")).map(input=>[input.dataset.capabilities,input.value.split(/[\s,]+/).filter(Boolean)]));
+  body.limits=Object.fromEntries(Array.from(document.querySelectorAll("[data-limit]")).map(input=>[input.dataset.limit,Number(input.value)]));
   body.models=Object.assign({},(SET.file&&SET.file.models)||{},{copilot:$("#fm_copilot").value,opencode:$("#fm_opencode").value});
   const jp=$("#p_judge").value;body.approvals={mode:document.querySelector("[name=apmode]:checked").value,autoSecrets:$("#ap_secrets").checked,judge:{provider:jp,model:(jp==="reviewer"||$("#m_judge").disabled)?"auto":($("#m_judge").value||"auto"),effort:(jp==="reviewer"||$("#e_judge").disabled)?"auto":($("#e_judge").value||"auto")}};
   const j=await post("/api/settings",body);
@@ -581,17 +892,42 @@ async function saveSettings(){
 
 /* ------------------------------------------------------------ header buttons and timers */
 $("#setsave").onclick=saveSettings;$("#setreload").onclick=loadSettings;document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
-async function startRelay(){let r=await post("/api/relay/start");
+async function startRelay(){
+  if(WZ.project.localWorkspace){
+    const setup=await get("/api/setup").catch(()=>null);
+    if(setup)SETUP=setup;
+    if(!setup||usableAIs().length<2)return {ok:false,error:"Open AIs & settings and connect two AI tools. One builds and the other reviews."};
+    const missing=(WZ.project.requires||[]).filter(item=>!item.found);
+    if(missing.length){FORM.workspacePlan=true;MODE="setup";STEP=3;apply();drawPlanDone();return {ok:false,needsDecision:"tools"}}
+  }
+  let r=await post("/api/relay/start");
   if(!r.ok&&r.needsDecision==="unfinished"){
     const list=(r.files||[]).slice(0,8).join(NL)+(r.count>8?NL+"... and "+(r.count-8)+" more":"");
     if(!confirm(r.error+NL+NL+list+NL+NL+"OK: save these changes in a folder next to the project (nothing is lost), clean the project, and start."+NL+"Cancel: do nothing, so you can commit them yourself first."))return r;
     r=await post("/api/relay/start",{saveAside:true})}
   return r}
 $("#btnstart").onclick=async()=>{const r=await startRelay();if(!r.needsDecision)alert(r.ok?r.message:r.error);setTimeout(tick,3000)};
-$("#btnstop").onclick=async()=>{if(!confirm("Stop the relay now?"+NL+NL+"The task being built is interrupted. Work already committed is kept, and it starts fresh next time."))return;
+$("#update-runner").onclick=async event=>{
+  const button=event.currentTarget, status=$("#runner-update-status"), project=WZ.project.path;
+  button.dataset.busy="true"; status.textContent="Updating Relay…"; headerButtons();
+  try{
+    const result=await post("/api/project/update-runner",{project});
+    if(WZ.project.path===project){
+      if(result.ok)WZ.project.runnerUpdate=false;
+      status.textContent=result.ok?result.message:result.error;
+    }
+  }catch{
+    if(WZ.project.path===project)status.textContent="Couldn't complete the update. Try again.";
+  }finally{
+    delete button.dataset.busy; headerButtons();
+  }
+};
+$("#workspace-add").onclick=()=>{TT.openTask=true;showTab("tasks")};
+$("#workspace-plan").onclick=showWorkspacePlanner;
+$("#btnstop").onclick=async()=>{if(!confirm("Stop Relay now?"+NL+NL+"Your work stays in the project."))return;
   const r=await post("/api/relay/stop");alert(r.ok?"Stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")));setTimeout(tick,1500)};
-$("#btnnew").onclick=async()=>{if(!confirm("Start a new project?"+NL+NL+"The current project and its relay are not touched; this page just moves on to a new one."))return;
-  await post("/api/project/forget");MODE="setup";STEP=2;JOB=null;FORM={name:"",idea:"",stack:"",root:FORM.root,host:"local",remote:false,prov:FORM.prov,model:"",effort:""};WZ=await get("/api/wizard");apply()};
+$("#btnnew").onclick=async()=>{if(!confirm("Switch projects? Your current tasks are saved. A running project keeps working."))return;
+  await post("/api/project/forget");MODE="setup";STEP=2;JOB=null;FORM={name:"",idea:"",stack:"",root:FORM.root,host:"local",remote:false,prov:FORM.prov,model:"",effort:"",mode:"new",existPath:"",taskMode:"none",taskPath:"",taskText:"",goal:""};WZ=await get("/api/wizard");apply()};
 $("#btnquit").onclick=async()=>{if(confirm("Close the Agent Relay app?"+NL+NL+"A relay that is running keeps running; this only closes the window and the page.")){await post("/api/quit");document.body.innerHTML='<main><div class="card">Agent Relay has closed. You can close this tab. Open the app again to come back.</div></main>'}};
 setInterval(()=>{$("#clock").textContent=new Date().toLocaleTimeString();if(MODE==="dash")tick()},3000);
 setInterval(()=>{if(Date.now()<FAST||(MODE==="setup"&&STEP===1))refreshSetup()},4000);

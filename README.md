@@ -1,5 +1,13 @@
 # Agent Relay
 
+Notion is optional. Standard projects keep their tasks in `tasks/*.md` and use Relay's built-in review queue. No Notion account or connector is needed for that workflow. Project X's Notion board is a custom integration, rather than a dependency of Agent Relay.
+
+Choose **Create project**, give it a name, then select **Add a task** and describe the change in your own words. You can save tasks before connecting an AI. When you’re ready to build, select **Plan with AI**, read the proposal, and approve the plan. **Start building** becomes available after the plan is ready. Building uses two AI tools so a separate tool can review the work.
+
+Open **Review work** to see what to try, watch any attached clips, and approve the result or ask for changes. Use **Open a project folder** to return to a project Relay already knows. Model choices and other setup options stay under **Advanced setup** or **AIs & settings**.
+
+When the app includes newer Relay scripts, an existing standard project's dashboard shows **Update Relay**. Stop Relay for that project, then click the button. The app checks which scripts it originally installed and saves the update as a local commit. Customized scripts and tasks stay in place. Projects with a custom runner, such as the Project X Notion integration, are updated from their own project.
+
 A desktop app that turns an idea into a working project by letting several AI tools share the job, one task at a time, while you watch.
 It walks you through five steps, and then runs by itself:
 
@@ -96,8 +104,66 @@ relay.settings.example.json   the default roles for a new project
 ## Settings
 
 `relay.settings.json` in each project (or the Settings card) sets provider, model and reasoning for dispatcher, builder, reviewer and cleaner (`none` = skipped), plus backups
-and a per-day cap. The reviewer must be a different model from the builder; only Claude is verified as dispatcher or reviewer (anything else needs `"experimental": true`).
+and a per-provider daily cap shared by backup calls across all roles. `fallbackRoles.dispatcher` and `fallbackRoles.reviewer` set ordered backup providers independently of `fallbackBuilders`.
+When a tool reports a usage limit, Relay records its cooldown and tries the next installed backup before waiting. Reviewer selection excludes models used by builders in the current round; an unknown (`auto`) model excludes that provider. If no independent reviewer can run, the task stays pending.
+The dashboard shows the active provider and the next retry time separately from the provider's actual quota reset. Built-in tools can fill any role; custom providers still require `"experimental": true`.
 The builder model `auto` means: follow each task's `Recommended AI:` line. A missing or invalid file falls back to the built-in defaults and says so in the log.
+
+These defaults apply to newly created projects. Existing projects keep their local relay scripts; update their `relay-lib.sh`, `relay-settings.py`, and `relay-limits.py` from `template/` while the relay is stopped. Projects with an embedded library in `relay.sh` need that embedded section updated as well. Restart the relay to load script changes. Settings alone take effect on the next call.
+
+Run regression tests with `python -m unittest discover -s tests -v` (requires Bash / Git Bash). Provider commands are mocked; the tests do not spend AI usage or change a project.
+
+## Routing and recovery
+
+The file-based runner persists task phases, provider calls and evidence under `.relay/` (ignored by git). On **Start building**, it resumes the same task when the saved branch, commit, task, test command, and project files match. If the builder had already finished, Relay saves the recorded changes and runs tests without calling the builder again. A completed test run resumes directly into review when its evidence still matches.
+
+If a build stopped after edits that do not match a saved checkpoint, inspect the files and use **Approve task retry** under **Technical details** to continue from them. This also applies to older checkpoints that lack file fingerprints. Retrying by approval resets the task budget and keeps the daily provider limits. A stale lock with a verified dead owner can be released; an unknown lock or reused live PID stays blocked for inspection.
+
+Declare each provider's verified capabilities under `capabilities` in settings. Only `repository` and `shell` are supplied for built-ins. For a connector-dependent task add, for example, `REQUIRES: notion` to its task file. Project-wide role requirements belong in `relay.project.json`:
+
+```json
+{"requiredCapabilities": {"dispatcher": ["repository", "notion"], "builder": ["repository", "shell"], "reviewer": ["repository", "shell", "notion"]}}
+```
+
+Capabilities are declarations, not connector installations or sign-ins. Relay never assumes that one AI's connector exists in another. Custom tools start with no declared capabilities.
+
+For standard projects, open **AIs & settings** and choose **Check access** beside Codex or Claude Code. The check makes one AI call in a temporary Git folder inside the project. The tool reads a random value and writes it back to a new file. Relay removes the folder and stores the result for that checkout and launcher. A failed check skips that tool during assignment. Use **Use only AI tools that pass** to require a passing result. Recheck after changing accounts or tool permissions. The check covers file access, and connector permissions remain separate.
+
+Settings also contain call/failure budgets and per-call timeouts (`limits`; see the example file). Calls include primary providers and quota responses. Identical failures stop that provider from repeating the same attempt. No-output warnings report inactivity, not a proven hang; a quiet tool may still be working. The timeout bounds the call. An explicit `AGENT_TIMEOUT` environment value overrides the setting.
+
+**Create isolated workspace** makes a new local branch/worktree from the last commit. It leaves the original branch and unsaved edits in place and starts no worker. Open the resulting folder as an existing project to run another Relay there. Builders and reviewers within one worker stay sequential on that workspace; this is not automatic parallel scheduling or automatic merging.
+
+## Activity, models and review files
+
+Standard task-file projects number each human review per task and display the tested commit on its card. A request for changes preserves that revision's feedback and footage and reopens the task. The next reviewed build receives its own review number. If it has no screenshot or video, the card says **Playthrough needed** and shows what to try. Approval records the revision and commit shown on the card. Older task-file reviews can use **Request a fresh review** to create their first numbered review.
+
+Reviewers can attach footage from the tested build with `python relay-runtime.py --build <tested-commit> artifact <task-id> <file> <note>`. Captured files can go under `.relay/captures/` so they stay outside source changes. Relay saves a copy and a checksum for the review. For manually attached media, the person attaching it confirms which build is shown.
+
+The activity panel shows requested and reported models, timing, exit status, changed files, routing skips and recovery events. Relay reads Claude's startup event and Codex's startup model and reported reroutes. When a tool leaves the reported model blank, a selected model ID can still be used for comparison. Aliases such as **Auto** need a reported model.
+
+For local projects, a reviewer must use a different known model from every builder that may have changed the result. If a reviewer uses a matching or unidentified model, Relay restores the task and review notes and tries the next reviewer. If the builder's model is unidentified, Relay pauses review and explains why in **Technical details**. Configured model IDs and CLI output are the available evidence. Providers may conceal backend routing.
+
+Automatic review requires a successful executed test command, its retained log and matching code/commit. The guard restores deleted or changed HUMAN/OWNER gates and rejects invented completed gates. This does not prove the test suite is sufficient; human checks remain yours.
+
+Attach screenshots, videos, PDFs, logs or ZIPs from **Files to review** on the review page, or run `python relay-runtime.py artifact T01 captures/example.png "What to inspect"`. Paths must stay inside the project, sensitive/hidden/executable paths are refused, and the file is bound to a commit and SHA-256. Changed attachments must be attached again. Browser preview is limited to 50 MB; larger builds stay available at their local path.
+
+### Record a workflow for human review
+
+On a task's review card, **Record workflow** opens the browser's sharing picker. Choose the app/window to show, demonstrate the steps, then press **Stop & attach**. Capture requests no audio, stops at three minutes or near 45 MB, and releases the shared tracks when stopped. The picker is an explicit user action; see the [Screen Capture API permission requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia#security).
+
+Clips are stored only in the project's `.relay/recordings/` folder and play directly on the review card. Add a note describing the steps, expected result, or issue. Each attachment has a checksum and attachment commit; a screen recording also records the project commit at capture start and flags a task definition that changed during capture. This context does not certify which executable was visible in the chosen window. Uploaded clips have an unknown recording commit and may contain audio.
+
+**Upload an existing clip** accepts WebM/MP4 up to 45 MB, including videos produced by a project's own test workflow. If screen sharing is unavailable in the desktop window or the user cancels it, upload remains available. If saving fails, the browser retains the clip for **Retry save** or **Download unsaved clip**, and warns before leaving with unsaved footage. Playback supports byte ranges for seeking.
+
+Saving or watching a clip never checks a HUMAN gate. Approval still requires **Looks good**, or the custom board's separate signoff. Native screen-picker behavior and desktop-host permissions need platform-specific acceptance; automated browser QA uses a synthetic canvas stream and the real video encoder, rather than recording the user's desktop.
+
+Blocked, finished and review-ready events appear in the app. **Enable desktop notifications** is optional and requests browser permission only after that button is pressed. Unsupported/denied notifications leave the in-app events available. No push service is used.
+
+**Custom Notion runners:** the Project X checkout uses its own `relay.sh` with the shared checkpoint helper. Dispatcher and reviewer providers need a declared `notion` capability. Dispatch reads the board and writes the local task snapshot. During review, a checkpoint binds both test commands and the saved log to the tested commit. If the worker stops before a reviewer runs, Start can continue from that evidence.
+
+If the activity panel says the Notion review started and the worker is stopped, compare the task page and local task files first. The provider may have written to Notion before it stopped. After reconciling those records, run `python relay-runtime.py board-reconcile <task-id>` in the Project X Relay checkout. This acknowledges reconciliation locally. It does not edit the board or approve a task. Review can then proceed on fresh evidence.
+
+With the Windows desktop app open, **Enable desktop notifications** sends a native test notification. New review, completion, and blocker events use the same Windows delivery path. The browser dashboard still uses its own notification permission.
 
 ## Known limits
 

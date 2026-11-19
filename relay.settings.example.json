@@ -6,7 +6,22 @@
     "cleaner":    { "provider": "none" }
   },
   "fallbackBuilders": ["copilot", "opencode"],
+  "fallbackRoles": {
+    "dispatcher": ["codex", "copilot", "opencode"],
+    "reviewer": ["copilot", "opencode", "codex"]
+  },
   "fallbackMaxPerDay": 10,
   "models": { "copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5" },
-  "idleChores": ["backend", "digest"]
+  "idleChores": ["backend", "digest"],
+  "capabilities": {
+    "claude": ["repository", "shell"],
+    "codex": ["repository", "shell"],
+    "copilot": ["repository", "shell"],
+    "opencode": ["repository", "shell"]
+  },
+  "limits": {
+    "callsPerTask": 24, "callsPerProviderDay": 100,
+    "failuresPerTask": 3, "sameFailureLimit": 2,
+    "timeoutSeconds": 5400, "idleWarningSeconds": 600
+  }
 }

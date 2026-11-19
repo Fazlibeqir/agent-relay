@@ -1,6 +1,6 @@
 """Actions behind the app's buttons: check this computer, install tools, create a project, put the relay into it, start and stop it.
 Everything here is local and only reachable from this computer (server.py checks the caller). Standard library only; OS differences live in osops.py."""
-import json, os, pathlib, re, shutil, subprocess, sys, time
+import json, os, pathlib, re, secrets, shutil, subprocess, sys, tempfile, threading, time
 
 import osops
 
@@ -11,14 +11,19 @@ HOME = pathlib.Path.home()
 IS_WIN = osops.IS_WIN
 NO_WINDOW = osops.NO_WINDOW
 APPDATA = (pathlib.Path(os.environ["APPDATA"]) if IS_WIN and os.environ.get("APPDATA") else pathlib.Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))) / "AgentRelay"
-RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-pick.py", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
+RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-limits.py", "relay-runtime.py", "relay-pick.py", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
 GITIGNORE = ("relay.log", "relay-tests.log", "relay-live-*.log", "relay-live-*.start", "relay-console.log", "relay-console.err", ".relay.lock/",
              "relay.settings.json", "relay.providers.json", "relay-requests/", "relay-priority.txt", "OWNER-REQUESTS.md", "OWNER-REQUESTS.json", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
-             "relay-idle-*.stamp", "relay-idle-*.log", "relay-commit.txt", "CURRENT_TASK.md", "REVIEW.md", "OWNER-REVIEW-DIGEST.md")
+             "relay-idle-*.stamp", "relay-idle-*.log", "relay-commit.txt", "relay-provider-*.limit", "relay-builder.identity", ".relay/", "CURRENT_TASK.md", "REVIEW.md", "OWNER-REVIEW-DIGEST.md")
 KNOWN_PROVIDERS = ("claude", "codex", "copilot", "opencode")
 
 INSTALL_STATE = {}
 SIGNIN_CACHE = {}
+TASK_ADD_LOCK = threading.Lock()
+RUNNER_UPDATE_LOCK = threading.Lock()
+RUNNER_UPDATE = ".relay/runner-update.json"
+RUNNER_INSTALL_COMMIT = "Add the Agent Relay scripts"
+RUNNER_UPDATE_COMMIT = "Update Agent Relay scripts"
 
 
 # ---------------------------------------------------------------- config
@@ -55,10 +60,10 @@ def tool_specs():
          "login": [], "loginNote": "A terminal opens: follow the sign-in steps (your browser opens). When it says you are in, type /exit."},
         {"id": "codex", "name": "Codex", "role": "Builds the tasks", "needed": False, "found": codex_found, "install": {"npm": "@openai/codex"},
          "login": ["login"], "loginNote": "A terminal opens: follow the sign-in steps in your browser."},
-        {"id": "copilot", "name": "GitHub Copilot", "role": "Backup builder", "needed": False, "found": _copilot_found(),
+        {"id": "copilot", "name": "GitHub Copilot", "role": "Backup AI", "needed": False, "found": _copilot_found(),
          "install": {"winget": "GitHub.CopilotApp"} if IS_WIN else {"npm": "@github/copilot"},
          "login": ["login"], "loginNote": "A terminal opens: follow the sign-in steps in your browser (use the GitHub account that has Copilot; the student pack works)."},
-        {"id": "opencode", "name": "OpenCode (free models)", "role": "Backup builder", "needed": False, "found": osops.which("opencode"), "install": {"npm": "opencode-ai"},
+        {"id": "opencode", "name": "OpenCode (free models)", "role": "Backup AI", "needed": False, "found": osops.which("opencode"), "install": {"npm": "opencode-ai"},
          "login": ["auth", "login"], "loginNote": "Free models need no sign-in."},
     ]
 
@@ -223,20 +228,27 @@ def _git(path, *args):
     return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
 
 
-def _commit(path, msg, files):
-    _git(path, "add", "--", *files)
+def _commit(path, msg, files, *, only=False):
+    staged = _git(path, "add", "--", *files)
+    if staged.returncode:
+        return staged
     ident = [] if _git(path, "config", "user.email").stdout.strip() else ["-c", "user.name=Agent Relay", "-c", "user.email=agent-relay@localhost"]
-    return subprocess.run(["git", "-C", str(path), *ident, "commit", "-q", "-m", msg], capture_output=True, text=True, creationflags=NO_WINDOW)
+    scope = ["--only", "--", *files] if only else []
+    return subprocess.run(["git", "-C", str(path), *ident, "commit", "-q", "-m", msg, *scope], capture_output=True, text=True, creationflags=NO_WINDOW)
 
 
 def folder_name(name):
     return re.sub(r"\s+", " ", re.sub(r'[\\/:*?"<>|]+', " ", (name or "").strip())).strip(" .")[:60]
 
 
-def create_project(name, root):
+def create_project(name, root, *, workspace_idea=None):
     """Make <root>/<name> a git repository on the working branch, with the relay in it. Checks the disk has room."""
     nm = folder_name(name)
     if not nm: return {"ok": False, "error": "Give the project a name."}
+    if workspace_idea is not None and len(workspace_idea) > 3000:
+        return {"ok": False, "error": "Keep your project description to 3,000 characters."}
+    if not shutil.which("git"):
+        return {"ok": False, "error": "Install the project history tool from Tools, then try again."}
     base = pathlib.Path(root or "").expanduser()
     if not str(root or "").strip(): return {"ok": False, "error": "Choose where to put it."}
     try: base.mkdir(parents=True, exist_ok=True)
@@ -248,9 +260,15 @@ def create_project(name, root):
     if path.exists() and any(path.iterdir()): return {"ok": False, "error": "A folder with that name already exists there and is not empty. Pick another name."}
     path.mkdir(parents=True, exist_ok=True)
     (path / "README.md").write_text("# %s\n\nStarted with Agent Relay.\n" % nm, encoding="utf-8")
+    first_files = ["README.md"]
+    if workspace_idea is not None:
+        config = {"name": nm, "idea": workspace_idea.strip(), "localWorkspace": True}
+        (path / "relay.project.json").write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (path / "tasks").mkdir()
+        first_files.append("relay.project.json")
     r = _git(path, "init", "-q", "-b", "agent-run")
     if r.returncode != 0: return {"ok": False, "error": "git is not working: " + (r.stderr or r.stdout)[-200:]}
-    c = _commit(path, "Start project", ["README.md"])
+    c = _commit(path, "Start project", first_files)
     if c.returncode != 0: return {"ok": False, "error": "first commit failed: " + (c.stderr or c.stdout)[-200:]}
     res = install_relay(str(path), commit=True)
     cfg = load_config(); cfg["project"] = str(path.resolve()); save_config(cfg)
@@ -281,8 +299,283 @@ def install_relay(target, commit=False):
             fh.write("\n".join(add) + "\n")
         log.append("added %d line(s) to .gitignore" % len(add))
     if commit and (new or add):
-        _commit(t, "Add the Agent Relay scripts", new + [".gitignore"])
+        _commit(t, RUNNER_INSTALL_COMMIT, new + ([".gitignore"] if add else []), only=True)
     return {"ok": True, "log": log}
+
+
+def _local_runner(r):
+    return relay_script(r) == "relay-files.sh" and not (r / "relay.sh").exists()
+
+
+ACCESS_TOOLS = {"codex": "Codex", "claude": "Claude Code"}
+
+
+def supports_project_access(r):
+    if not _local_runner(r) or (r / ".relay").resolve() != r / ".relay":
+        return False
+    try:
+        return "def project_access(" in (r / "relay-runtime.py").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+
+
+def access_launcher(provider):
+    override = os.environ.get(provider.upper() + "_BIN")
+    if override and pathlib.Path(override).is_file():
+        return override
+    if IS_WIN and provider == "codex":
+        desktop = osops.glob_first([r"C:\Program Files\WindowsApps\OpenAI.Codex_*\app\resources\codex.exe"])
+        if desktop:
+            return desktop
+    return osops.which(provider)
+
+
+def project_access(relay):
+    r = pathlib.Path(relay).resolve()
+    supported = supports_project_access(r)
+    if not supported:
+        return {"supported": False, "updateNeeded": _local_runner(r)}
+    runtime = runtime_for(r)
+    data = runtime.project_access()
+    tools = []
+    for provider, name in ACCESS_TOOLS.items():
+        launcher = access_launcher(provider)
+        status = runtime.access_status(provider, launcher, data) if launcher else "missing"
+        tools.append({"id": provider, "name": name, "status": status})
+    return {"supported": True, "checkedOnly": data["checkedOnly"], "tools": tools}
+
+
+def _run_access_check(provider, launcher, folder, prompt):
+    if provider == "codex":
+        args = ["exec", "--sandbox", "workspace-write", "--ephemeral", "-"]
+    else:
+        (folder / "mcp.json").write_text('{"mcpServers":{}}', encoding="utf-8")
+        args = ["-p", "--tools", "Read,Write", "--permission-mode", "acceptEdits",
+                "--strict-mcp-config", "--mcp-config", "mcp.json", "--no-session-persistence"]
+    command = [launcher, *args]
+    if IS_WIN and launcher.lower().endswith((".cmd", ".bat")):
+        command = ["cmd.exe", "/d", "/c", *command]
+    with subprocess.Popen(command, cwd=folder, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, creationflags=NO_WINDOW) as child:
+        try:
+            child.communicate(prompt.encode("utf-8"), timeout=75)
+        except subprocess.TimeoutExpired:
+            if IS_WIN:
+                subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, creationflags=NO_WINDOW, timeout=10)
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+            return False
+        return child.returncode == 0
+
+
+def check_project_access(relay, provider):
+    r = pathlib.Path(relay).resolve()
+    if not supports_project_access(r) or provider not in ACCESS_TOOLS:
+        return {"ok": False, "error": "An access check is unavailable for this project or AI tool."}
+    launcher = access_launcher(provider)
+    if not launcher:
+        return {"ok": False, "error": "Install the AI tool first."}
+    before = pathlib.Path(launcher).stat()
+    runtime = runtime_for(r)
+    if runtime.directory.resolve() != runtime.directory:
+        return {"ok": False, "error": "This project's Relay files are linked to another folder."}
+    if not runtime.release_stale_lock() or relay_tree(r)[1]:
+        return {"ok": False, "error": "Stop Relay for this project before checking access."}
+    runtime.claim(os.getpid())
+    try:
+        with tempfile.TemporaryDirectory(prefix="access-", dir=runtime.directory) as scratch:
+            folder = pathlib.Path(scratch)
+            if _git(folder, "init", "-q", "--template=").returncode:
+                raise ValueError("Relay couldn't prepare a temporary project for the check.")
+            challenge = secrets.token_hex(16)
+            (folder / "input.txt").write_text(challenge, encoding="utf-8")
+            prompt = (
+                "This is a one-step project access check in a disposable folder. Read input.txt. "
+                "Using your file tools, create result.txt containing exactly the text from input.txt. "
+                "Do not open or change other files, use connectors, or commit anything. Then stop."
+            )
+            try:
+                ran = _run_access_check(provider, launcher, folder, prompt)
+            except (OSError, subprocess.TimeoutExpired):
+                ran = False
+            output = folder / "result.txt"
+            passed = bool(ran and not output.is_symlink() and output.is_file()
+                          and output.stat().st_size <= 64 and output.read_bytes().strip() == challenge.encode())
+        after = pathlib.Path(launcher).stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            return {"ok": False, "error": "The AI tool was updated during the check. Try again."}
+        runtime.record_access(provider, launcher, passed)
+        return {"ok": True, "passed": passed, "access": project_access(r)}
+    finally:
+        (r / ".relay.lock/owner.json").unlink()
+        (r / ".relay.lock").rmdir()
+
+
+def _file_bytes(r, name):
+    path = r / name
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ValueError(f"Relay found a linked or special file at {name}.")
+    return path.read_bytes() if path.exists() else None
+
+
+def _runner_changes(r):
+    changes = {}
+    for name in RELAY_FILES:
+        current = _file_bytes(r, name)
+        wanted = (TEMPLATE / name).read_bytes().replace(b"\r\n", b"\n")
+        if not _same_runner_bytes(current, wanted):
+            changes[name] = (current, wanted)
+    if changes:
+        current = _file_bytes(r, ".gitignore")
+        present = (current or b"").splitlines()
+        missing = [rule.encode() for rule in GITIGNORE if rule.encode() not in present]
+        if missing:
+            newline = b"\r\n" if b"\r\n" in (current or b"") else b"\n"
+            prefix = current or b""
+            if prefix and not prefix.endswith(b"\n"):
+                prefix += newline
+            changes[".gitignore"] = (current, prefix + newline.join(missing) + newline)
+    return changes
+
+
+def runner_update_available(r):
+    if not _local_runner(r):
+        return False
+    try:
+        return (r / RUNNER_UPDATE).is_file() or bool(_runner_changes(r))
+    except (ValueError, OSError):
+        return True
+
+
+def _replace_bytes(path, data):
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+        temp = pathlib.Path(stream.name)
+        try:
+            stream.write(data)
+            stream.close()
+            if path.exists():
+                shutil.copymode(path, temp)
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
+
+
+def _git_blob(r, key):
+    result = subprocess.run(["git", "-C", str(r), "show", key], capture_output=True, creationflags=NO_WINDOW)
+    return result.stdout if result.returncode == 0 else None
+
+
+def _same_runner_bytes(left, right):
+    if left is None or right is None:
+        return left == right
+    return left.replace(b"\r\n", b"\n") == right.replace(b"\r\n", b"\n")
+
+
+def _runner_update_record(r, record):
+    """Close a committed update or restore only the files recorded before an interrupted update."""
+    journal = r / RUNNER_UPDATE
+    if record["branch"] != _git(r, "branch", "--show-current").stdout.strip():
+        raise ValueError("Return to the branch where the Relay update started.")
+    changes = {}
+    for name, pair in record["files"].items():
+        if name not in (*RELAY_FILES, ".gitignore"):
+            raise ValueError("Unexpected file in the saved Relay update.")
+        changes[name] = tuple(bytes.fromhex(value) if value is not None else None for value in pair)
+    head = _git(r, "rev-parse", "HEAD").stdout.strip()
+    if head != record["head"]:
+        committed = _git(r, "log", "-1", "--format=%P%n%s").stdout.splitlines()
+        if committed != [record["head"], RUNNER_UPDATE_COMMIT] or any(
+            not _same_runner_bytes(_git_blob(r, f"HEAD:{name}"), wanted)
+            for name, (_, wanted) in changes.items()
+        ):
+            raise ValueError("Project history changed during the update. The saved Relay update is still available.")
+        journal.unlink()
+        return True
+    staged = []
+    for name, (before, wanted) in changes.items():
+        if _file_bytes(r, name) not in (before, wanted):
+            raise ValueError(f"{name} changed after the update started. The saved Relay update is still available.")
+        index = _git_blob(r, f":{name}")
+        if index != _git_blob(r, f"HEAD:{name}"):
+            if not _same_runner_bytes(index, wanted):
+                raise ValueError(f"{name} was staged separately. The saved Relay update is still available.")
+            staged.append(name)
+    if staged and _git(r, "restore", "--staged", "--", *staged).returncode:
+        raise ValueError("Could not restore Relay's files in the Git index.")
+    for name, (before, _) in changes.items():
+        if _file_bytes(r, name) == before:
+            continue
+        if before is None:
+            (r / name).unlink(missing_ok=True)
+        else:
+            _replace_bytes(r / name, before)
+    journal.unlink()
+    return False
+
+
+def update_runner(relay):
+    r = pathlib.Path(relay).resolve()
+    journal = r / RUNNER_UPDATE
+    with RUNNER_UPDATE_LOCK:
+        try:
+            if not _local_runner(r):
+                raise ValueError("This project uses a custom Relay setup. Update it through that project's maintainers.")
+            if journal.parent.resolve() != journal.parent or journal.is_symlink():
+                raise ValueError("This project's Relay data is linked to another location.")
+            runtime = runtime_for(r)
+            if not runtime.release_stale_lock() or relay_tree(r)[1]:
+                raise ValueError("Stop Relay for this project before updating.")
+            runtime.claim(os.getpid())
+            try:
+                if journal.exists():
+                    if _runner_update_record(r, json.loads(journal.read_bytes())):
+                        return {"ok": True, "message": "Relay is up to date."}
+                if runtime.state().get("phase") != "idle":
+                    raise ValueError("Finish or resolve the saved Relay task before updating.")
+                changes = _runner_changes(r)
+                if not changes:
+                    return {"ok": True, "message": "Relay is up to date."}
+                branch = _git(r, "branch", "--show-current").stdout.strip()
+                if branch in ("", "main", "master"):
+                    raise ValueError("Open the project's Relay work branch before updating.")
+                status = _git(r, "status", "--porcelain", "--untracked-files=all", "--ignored=matching", "--", *changes)
+                if status.returncode:
+                    raise ValueError("Relay couldn't check the project's saved files.")
+                if status.stdout.strip():
+                    raise ValueError("Some Relay files have unsaved changes. Save those changes and check again.")
+                for name, (before, _) in changes.items():
+                    if name == ".gitignore" or before is None:
+                        continue
+                    installed = _git(r, "log", "-1", "--format=%H", f"--grep=^{RUNNER_INSTALL_COMMIT}$",
+                                     f"--grep=^{RUNNER_UPDATE_COMMIT}$", "--", name).stdout.strip()
+                    if not installed or _git_blob(r, f"{installed}:{name}") != _git_blob(r, f"HEAD:{name}"):
+                        raise ValueError(f"{name} has custom changes. Relay left it in place.")
+                record = {
+                    "head": _git(r, "rev-parse", "HEAD").stdout.strip(),
+                    "branch": branch,
+                    "files": {name: [before.hex() if before is not None else None, wanted.hex()]
+                              for name, (before, wanted) in changes.items()},
+                }
+                _replace_bytes(journal, json.dumps(record).encode("utf-8"))
+                try:
+                    for name, (_, wanted) in changes.items():
+                        _replace_bytes(r / name, wanted)
+                    commit = _commit(r, RUNNER_UPDATE_COMMIT, list(changes), only=True)
+                    if commit.returncode:
+                        raise ValueError("Git couldn't save the Relay update.")
+                except (OSError, ValueError):
+                    if not _runner_update_record(r, record):
+                        raise
+                else:
+                    _runner_update_record(r, record)
+                return {"ok": True, "message": "Relay updated for this project.", "files": list(changes)}
+            finally:
+                (r / ".relay.lock/owner.json").unlink()
+                (r / ".relay.lock").rmdir()
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            return {"ok": False, "error": str(exc)}
 
 
 # ---------------------------------------------------------------- starting and stopping
@@ -300,6 +593,16 @@ def relay_tree(relay):
     """The launcher process of THIS project's relay and everything below it."""
     rows = osops.process_table(); me = os.getpid()
     roots = osops.relay_roots(rows, relay, me)
+    owner_file = pathlib.Path(relay) / ".relay.lock/owner.json"
+    try:
+        owner = json.loads(owner_file.read_text(encoding="utf-8"))
+        pid = owner.get("pid")
+        if (owner.get("root") == str(pathlib.Path(relay).resolve()) and pid in rows and pid != me
+                and rows[pid]["name"].lower() in ("bash", "sh", "bash.exe", "sh.exe")
+                and owner.get("identity") and runtime_for(relay).process_identity(pid) == owner["identity"]):
+            roots = list(set(roots + [pid]))
+    except (OSError, ValueError, TypeError):
+        pass
     tree, frontier = set(roots), list(roots)
     while frontier:
         cur = frontier.pop()
@@ -312,6 +615,16 @@ def relay_tree(relay):
 NOT_WORK = re.compile(r"(^|/)(relay[^/]*|CURRENT_TASK\.md|REVIEW\.md|PLAYTEST_QUEUE[^/]*|OWNER-REQUESTS\.[a-z]+|graphify-out|\.agent-relay[^/]*|\.relay[^/]*)(/|$)")
 
 
+def relay_ignore_additions(project):
+    result = _git(project, "diff", "--no-ext-diff", "--no-textconv", "--unified=0", "--", ".gitignore")
+    if result.returncode:
+        return False
+    lines = result.stdout.splitlines()
+    first_hunk = next((index for index, line in enumerate(lines) if line.startswith("@@ ")), len(lines))
+    changes = [line for line in lines[first_hunk:] if line.startswith(("+", "-"))]
+    return bool(changes) and all(line.startswith("+") and (not line[1:] or line[1:] in GITIGNORE) for line in changes)
+
+
 def unfinished_work(r):
     """Uncommitted changes in the project (what a stopped run left half-done). The relay refuses to start on top of them. -> [(status, path)]"""
     if not (pathlib.Path(r) / ".git").exists(): return []
@@ -321,6 +634,7 @@ def unfinished_work(r):
         if len(line) < 4: continue
         st, path = line[:2], line[3:].strip().strip('"')
         if NOT_WORK.search(path): continue
+        if st == " M" and path == ".gitignore" and relay_ignore_additions(r): continue
         rows.append((st, path))
     return rows
 
@@ -359,17 +673,40 @@ def start_relay(relay, save_aside=False):
     r = pathlib.Path(relay)
     script = relay_script(r)
     if not script: return {"ok": False, "error": "This project has no plan yet (no tasks and relay.project.json). Finish the setup steps first."}
+    if (r / RUNNER_UPDATE).exists():
+        return {"ok": False, "error": "Finish Update Relay before starting this project."}
+    if script == "relay-files.sh":
+        project = json.loads((r / "relay.project.json").read_text(encoding="utf-8-sig"))
+        if project.get("localWorkspace") and (not (r / "AGENTS.md").is_file() or not str(project.get("testCommand") or "").strip()):
+            return {"ok": False, "error": "Use Plan with AI and approve the plan before starting work."}
+    if (r / "relay-runtime.py").exists(): runtime_for(r).release_stale_lock()
     if relay_running(r): return {"ok": False, "error": "A relay is already running here (the lock exists)."}
     rows = unfinished_work(r)
     saved = ""
-    if rows:
+    approved_retry = False
+    resumed_build = False
+    if (r / "relay-runtime.py").exists():
+        runtime = runtime_for(r)
+        state = runtime.state()
+        if _local_runner(r) and state.get("phase") == "building":
+            if relay_tree(r)[1]:
+                return {"ok": False, "error": "The previous Relay launcher is still running. Wait for it to stop before resuming."}
+            cmd = os.environ.get("TEST_CMD") or project.get("testCommand") or ""
+            if runtime.build_resume_phase(state, cmd) == "blocked":
+                return {"ok": False, "error": "The saved task or project files changed. Review the files, then use Approve task retry under Technical details."}
+            resumed_build = True
+        current = r / "CURRENT_TASK.md"
+        import hashlib
+        approved_retry = bool(state.get("retryApproved") and current.is_file() and state.get("head") == _git(r, "rev-parse", "HEAD").stdout.strip()
+                              and hashlib.sha256(current.read_bytes()).hexdigest() == state.get("taskHash"))
+    if rows and not approved_retry and not resumed_build:
         if not save_aside:
             return {"ok": False, "needsDecision": "unfinished", "files": [p for _, p in rows][:40], "count": len(rows),
                     "error": "A previous run left %d unfinished file change(s) in the project, and a new run cannot start on top of them." % len(rows)}
         saved, err = save_work_aside(r, rows)
         if err: return {"ok": False, "error": err, "saved": saved}
     osops.start_background(r, script)
-    msg = "Starting. It runs the project's tests first, then works through the tasks by itself."
+    msg = "Continuing the saved task." if resumed_build else "Starting. It runs the project's tests first, then works through the tasks by itself."
     if saved: msg = "Your unfinished changes are saved in " + saved + ". " + msg
     return {"ok": True, "message": msg, "saved": saved}
 
@@ -383,10 +720,71 @@ def stop_relay(relay):
     for pid in sorted(tree, reverse=True): osops.kill_pid(pid)
     time.sleep(2)
     left, _ = relay_tree(r)
+    if not left and (r / ".relay.lock/owner.json").exists():
+        if not runtime_for(r).release_stale_lock():
+            return {"ok": False, "killed": tree, "left": [], "error": "The worker lock is still active or unverified; it was preserved for inspection."}
     if not left and (r / ".relay.lock").exists():
         try: (r / ".relay.lock").rmdir()
         except OSError: pass
     return {"ok": not left, "killed": tree, "left": left}
+
+
+def runtime_for(relay):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("relay_runtime", TEMPLATE / "relay-runtime.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.Runtime(relay)
+
+
+def runtime_state(relay):
+    if not relay: return {"phase": "idle", "calls": [], "events": []}
+    try:
+        state = runtime_for(relay).summary()
+        directory = pathlib.Path(relay)
+        script = relay_script(directory)
+        state["supported"] = (directory / "relay-runtime.py").exists() and (
+            script == "relay-files.sh" or (script == "relay.sh" and "relay_runtime board-resume" in (directory / script).read_text(encoding="utf-8")))
+        return state
+    except (OSError, ValueError, KeyError) as exc:
+        return {"error": str(exc), "calls": [], "events": []}
+
+
+def create_worktree(relay):
+    """Create a new local branch/worktree; never move, clean or copy unsaved source edits."""
+    import uuid
+    source = pathlib.Path(relay).resolve()
+    branch = "relay/" + time.strftime("%Y%m%d-") + uuid.uuid4().hex[:8]
+    destination = source.parent / ".agent-relay-worktrees" / (source.name + "-" + branch.split("/")[-1])
+    destination.parent.mkdir(exist_ok=True)
+    result = _git(source, "worktree", "add", "-b", branch, str(destination), "HEAD")
+    if result.returncode:
+        return {"ok": False, "error": (result.stderr or result.stdout).strip()}
+    # Copy only Relay configuration, not credentials, source edits, caches, or provider sessions.
+    for name in ("relay.settings.json", "relay.project.json"):
+        if (source / name).is_file(): shutil.copyfile(source / name, destination / name)
+    if relay_script(source) != "relay.sh":
+        installed = install_relay(destination)
+        if not installed["ok"]: return {"ok": False, "path": str(destination), "error": installed["error"]}
+        for name in RELAY_FILES:
+            (destination / name).write_bytes((TEMPLATE / name).read_bytes().replace(b"\r\n", b"\n"))
+    return {"ok": True, "path": str(destination), "branch": branch,
+            "message": "Created from the last commit. Unsaved edits remain in the original checkout. No worker was started."}
+
+
+def artifact_file(relay, task, path):
+    runtime = runtime_for(relay)
+    item = next((x for x in runtime.state().get("artifacts", {}).get(task, []) if x["path"] == path), None)
+    if not item: raise ValueError("Artifact is not registered for this task")
+    file = runtime.safe_path(path)
+    if not file.is_file(): raise ValueError("Artifact is missing")
+    import hashlib
+    with file.open("rb") as stream:
+        checksum = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""): checksum.update(chunk)
+        actual = checksum.hexdigest()
+    if actual != item["sha256"]: raise ValueError("Artifact changed after it was attached; attach the new version")
+    return file
 
 
 def pick_folder(title="Choose a folder"):
@@ -511,6 +909,47 @@ def next_tasks(project, n=5):
 
 
 # ---------------------------------------------------------------- the person's actions on a task (task-file projects only)
+def add_task(project, title, description, review=""):
+    root = pathlib.Path(project).resolve()
+    if relay_script(root) != "relay-files.sh" or (root / "relay.sh").exists():
+        return {"ok": False, "error": "Create tasks in this project's own task board."}
+    if not all(isinstance(value, str) for value in (title, description, review)):
+        return {"ok": False, "error": "Enter a title and describe the work."}
+    title, description, review = " ".join(title.split()), description.strip(), " ".join(review.split())
+    if not title or not description:
+        return {"ok": False, "error": "Enter a title and describe the work."}
+    if len(title) > 100 or len(description) > 3000 or len(review) > 300:
+        return {"ok": False, "error": "Use up to 100 characters for the title, 3,000 for the work and 300 for the review note."}
+    tasks = root / "tasks"
+    if tasks.resolve() != tasks:
+        return {"ok": False, "error": "The task folder must be inside this project."}
+    with TASK_ADD_LOCK:
+        running = relay_running(root)
+        if not running and (root / ".relay/state.json").is_file() and runtime_for(root).state().get("phase") != "idle":
+            return {"ok": False, "error": "Resume the saved work before adding another task. This keeps its test results available."}
+        numbers = (int(match[1]) for path in tasks.iterdir() if (match := re.fullmatch(r"T(\d+)[a-z]?\.md", path.name)))
+        task = f"T{max(numbers, default=0) + 1:02d}"
+        relative = f"tasks/{task}.md"
+        text = (
+            f"# {task} - {title}\n\nStatus: Not started | Completion: 0% (0/2 gates)\n\n"
+            "- [ ] AUTO: Add or update a check for the requested behavior and pass the project's test command.\n"
+            f"- [ ] HUMAN: {review or 'Try the requested change and confirm it works as described.'}\n\n"
+            "## What to do\n" + "\n".join("> " + line for line in description.splitlines()) + "\n"
+        )
+        with tempfile.NamedTemporaryFile("w", dir=tasks, encoding="utf-8", newline="\n", delete=False, suffix=".tmp") as file:
+            temporary = pathlib.Path(file.name)
+            file.write(text)
+        try:
+            temporary.replace(root / relative)
+        finally:
+            temporary.unlink(missing_ok=True)
+        if not running:
+            result = _commit(root, f"{task}: add task", [relative], only=True)
+            if result.returncode:
+                return {"ok": True, "task": task, "warning": "Task saved. Relay could not save it to project history. The task is still in your list."}
+        return {"ok": True, "task": task}
+
+
 def _task_file(project, task_id):
     if not re.fullmatch(r"T\d+[a-z]?", task_id or ""): return None
     f = pathlib.Path(project) / "tasks" / (task_id + ".md")
@@ -540,7 +979,7 @@ def _rewrite_status(lines):
 def _after_edit(project, task_id, message):
     """The relay commits the task files itself between rounds; when it is not running, commit here so the project stays clean."""
     if not relay_running(project):
-        _commit(pathlib.Path(project), message, ["tasks/%s.md" % task_id])
+        _commit(pathlib.Path(project), message, ["tasks/%s.md" % task_id], only=True)
 
 
 def queue_next(project, task_id):
@@ -553,7 +992,47 @@ def queue_next(project, task_id):
     return {"ok": True, "queue": ids}
 
 
-def approve_task(project, task_id):
+def decide_review(project, task_id, revision, action, note=""):
+    runtime = runtime_for(project)
+    with runtime.lock():
+        state = runtime.state()
+        if state.get("phase") == "reviewing" and state.get("task") == task_id:
+            return {"ok": False, "error": "Wait for the AI review to finish saving, then reopen this review."}
+        try:
+            review = runtime.require_review(state, task_id, revision)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        label = f"Review {review['number']} (build {review['build']})"
+        feedback = " ".join((note or "").split())[:1000]
+        if action == "approve":
+            result = _approve_task(project, task_id, label)
+        else:
+            result = _request_changes(project, task_id, feedback, label)
+        if result["ok"]:
+            review.update(status="approved" if action == "approve" else "changes requested",
+                          feedback=feedback, decidedAt=time.time())
+            runtime.save(state)
+        return result
+
+
+def request_work_changes(project, task_id, note):
+    runtime = runtime_for(project)
+    with runtime.lock():
+        state = runtime.state()
+        if state.get("phase") == "reviewing" and state.get("task") == task_id:
+            return {"ok": False, "error": "Wait for the AI review to finish saving."}
+        reviews = state.get("reviews", {}).get(task_id, [])
+        if reviews and reviews[-1]["status"] == "pending":
+            try:
+                runtime.require_review(state, task_id, reviews[-1]["id"])
+            except ValueError:
+                pass
+            else:
+                return {"ok": False, "error": "Open the pending review to request changes for its build."}
+        return _request_changes(project, task_id, note, "Task feedback")
+
+
+def _approve_task(project, task_id, label):
     """The person says the task is fine: tick its HUMAN gate(s). Only possible when the AI has finished every AUTO gate."""
     f = _task_file(project, task_id)
     if not f: return {"ok": False, "error": "unknown task"}
@@ -568,28 +1047,32 @@ def approve_task(project, task_id):
     _rewrite_status(lines)
     stamp = time.strftime("%Y-%m-%d %H:%M")
     if not any(l.strip() == "## Review log" for l in lines): lines += ["", "## Review log"]
-    lines.append("Approved by you in the app on %s." % stamp)
-    with open(f, "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(lines) + "\n")
+    lines.append("%s approved by you in the app on %s." % (label, stamp))
+    _replace_bytes(f, ("\n".join(lines) + "\n").encode("utf-8"))
     _after_edit(project, task_id, "%s: approved by you in the app" % task_id)
     return {"ok": True}
 
 
-def request_changes(project, task_id, note):
+def _request_changes(project, task_id, note, label):
     """The person wants changes: add their note as a new automatic gate (so the AI must address it and the reviewer checks it), and do the task next."""
     f = _task_file(project, task_id)
     note = " ".join((note or "").split())
     if not f: return {"ok": False, "error": "unknown task"}
     if len(note) < 3: return {"ok": False, "error": "Say what should be changed."}
     lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    for i, line in enumerate(lines):
+        gate = GATE_LINE.match(line)
+        if gate and HUMAN_GATE.match(gate.group(2).strip()):
+            lines[i] = re.sub(r"\[[xX]\]", "[ ]", line, count=1)
     last = max((i for i, l in enumerate(lines) if GATE_LINE.match(l)), default=None)
     gate = "- [ ] AUTO: Fix what the owner asked for and prove it with a check: %s" % note[:300]
     if last is None: return {"ok": False, "error": "This task has no gates to extend."}
     lines.insert(last + 1, gate)
     stamp = time.strftime("%Y-%m-%d %H:%M")
     if not any(l.strip() == "## Owner feedback" for l in lines): lines += ["", "## Owner feedback"]
-    lines.append("- %s: %s" % (stamp, note))
+    lines.append("- %s on %s: %s" % (label, stamp, note))
     _rewrite_status(lines)
-    open(f, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+    _replace_bytes(f, ("\n".join(lines) + "\n").encode("utf-8"))
     _after_edit(project, task_id, "%s: changes asked for by you in the app" % task_id)
     queue_next(project, task_id)
     return {"ok": True}

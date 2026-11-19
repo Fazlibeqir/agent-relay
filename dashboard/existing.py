@@ -70,6 +70,9 @@ def inspect(path):
             "hasRelay": bool(appapi.relay_script(p)), "running": appapi.relay_running(p)}
     ready, n = formatted_tasks(p)
     info["tasksReady"], info["taskFiles"] = ready, n
+    try: metadata = json.loads((p / "relay.project.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError): metadata = {}
+    info["readyToOpen"] = info["hasRelay"] and (info["hasAgents"] and ready or isinstance(metadata, dict) and metadata.get("localWorkspace") is True)
     info["tasksFolderOther"] = (p / "tasks").is_dir() and not ready
     if is_git:
         b = _git(p, "rev-parse", "--abbrev-ref", "HEAD"); info["branch"] = b.stdout.strip() if b.returncode == 0 else ""

@@ -11,6 +11,7 @@ set -uo pipefail
 command -v python >/dev/null 2>&1 || python() { python3 "$@"; }      # Linux often has only python3
 
 SLEEP_ON_LIMIT="${SLEEP_ON_LIMIT:-1800}"
+AGENT_TIMEOUT_OVERRIDE="${AGENT_TIMEOUT:-}"
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-5400}"
 MAX_STALLS="${MAX_STALLS:-3}"
 MAX_ROUNDS="${MAX_ROUNDS:-0}"
@@ -40,9 +41,12 @@ if command -v cygpath >/dev/null; then
   CODEX_ARGS=(--sandbox workspace-write --add-dir "$GIT_COMMON"); [ "$GIT_OWN" = "$GIT_COMMON" ] || CODEX_ARGS+=(--add-dir "$GIT_OWN")
 fi
 
-for f in "$LOG" "$TEST_LOG" "$COMMIT_FILE" "$LOCK/" "relay-requests/"; do grep -qxF "$f" .gitignore 2>/dev/null || echo "$f" >> .gitignore; done
-if ! mkdir "$LOCK" 2>/dev/null; then echo "Another relay is already running here (or a crashed one left $LOCK - remove it if no relay is running)."; exit 1; fi
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+for f in "$LOG" "$TEST_LOG" "$COMMIT_FILE" "$LOCK/" "relay-requests/" ".relay/"; do grep -qxF "$f" .gitignore 2>/dev/null || echo "$f" >> .gitignore; done
+worker_pid=$$
+if command -v cygpath >/dev/null; then worker_pid=$(ps -l -p "$$" | awk 'NR==2 {print $4}'); fi
+[[ "$worker_pid" =~ ^[0-9]+$ ]] || { echo "Could not identify this worker's PID"; exit 1; }
+python "$(dirname "$0")/relay-runtime.py" claim "$worker_pid" || exit 1
+trap 'rm -f "$LOCK/owner.json"; rmdir "$LOCK" 2>/dev/null' EXIT
 trap 'exit 130' INT TERM
 log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
 
@@ -56,7 +60,10 @@ TEST_CMD="${TEST_CMD:-$(python -c "import json;print(json.load(open('relay.proje
 commit_state() {  # keep the loop files and the task files committed, so every review is one clean commit
   local f paths=()
   for f in "$TASK_FILE" "$REVIEW_FILE" "$QUEUE_FILE" tasks; do
-    if [ -e "$f" ] || git ls-files --error-unmatch "$f" >/dev/null 2>&1; then git add -A -- "$f"; paths+=("$f"); fi
+    if [ -e "$f" ] || git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+      if [ "$f" = tasks ]; then git add -A -- "$f"; else git add -f -A -- "$f"; fi
+      paths+=("$f")
+    fi
   done
   [ "${#paths[@]}" -gt 0 ] || return 0
   git diff --cached --quiet -- "${paths[@]}" || git commit -q -m "relay: loop state — $1" -- "${paths[@]}"
@@ -96,7 +103,7 @@ judge_pending() {  # approvals.mode = auto: an AI judge answers each undecided r
     [ -n "$id" ] || continue
     if { [ "$typ" = commit-sensitive ] || [ "$typ" = push ]; } && [ "${S_APPROVALS_SECRETS:-0}" != 1 ]; then continue; fi   # secrets and uploads stay with the person
     prompt=$(python relay-pick.py req judge-prompt "$id" | tr -d '\r')
-    if [ -n "${S_JUDGE_PROVIDER:-}" ]; then tool_run "$S_JUDGE_PROVIDER" "$prompt" "${S_JUDGE_MODEL:-auto}" "${S_JUDGE_EFFORT:-auto}"; out=$LAST_OUT
+    if [ -n "${S_JUDGE_PROVIDER:-}" ]; then ROLE_NOW=judge tool_run "$S_JUDGE_PROVIDER" "$prompt" "${S_JUDGE_MODEL:-auto}" "${S_JUDGE_EFFORT:-auto}"; out=$LAST_OUT
     else claude_run reviewer "$prompt"; out=$LAST_OUT; fi
     v=$(printf '%s' "$out" | python relay-pick.py req verdict | tr -d '\r')
     dec=${v%%|*}; reason=${v#*|}
@@ -160,6 +167,7 @@ HOUSE_RULES="PROJECT RULES:
   commands or services involved), then carry on with everything else, or start your final message with BLOCKED. The person decides in the app; their decisions are listed at the end of your next prompt."
 
 BUILD_PROMPT="You are the implementer for this project. Follow AGENTS.md exactly.
+Continue any existing work on the current task; do not discard edits left by an earlier attempt.
 Read $TASK_FILE (the task and its gates) and, if it exists, $REVIEW_FILE. Fix every issue in $REVIEW_FILE first; otherwise work on the open AUTO gates.
 For each open AUTO gate, add or extend automated tests so that the command named in the gate proves it, and make sure the project's single test command
 ($TEST_CMD) runs them. Run that command yourself before you finish and fix every failure.
@@ -172,19 +180,22 @@ NO BUSYWORK: a commit must change code, tests or test setup that an open gate ne
 decision from the person, an account, a service, hardware or a test that cannot run here), do NOT write $COMMIT_FILE. Start your final message with
 'BLOCKED: <which gate> — <why> — <what the person must do>' instead.
 Your final message: what you built, the files in $COMMIT_FILE, and the test results.
+For a visual workflow, tell the reviewer how to run the project and capture the final behavior from the tested commit.
 $HOUSE_RULES"
 
 # ---------------------------------------------------------------- start
 cfg_load
+RESUME_PHASE=$(relay_runtime resume "$TEST_CMD") || { log "checkpoint recovery failed; nothing was discarded"; exit 1; }
+[ "$RESUME_PHASE" != blocked ] || { log "checkpoint needs attention: open Relay's activity panel"; exit 1; }
 log "agents: Claude ${CLAUDE_MODEL:-$S_DISPATCHER_MODEL}, effort ${CLAUDE_EFFORT:-$S_DISPATCHER_EFFORT}, advisor ${CLAUDE_ADVISOR:-$S_ADVISOR} (reviewer); tasks come from tasks/*.md (relay-pick.py, no AI)"
 log "relay started on branch $BRANCH (task files; test command: ${TEST_CMD:-none})"
-if [ -n "$TEST_CMD" ] && python relay-pick.py done T00 . ; then
+if [ "$RESUME_PHASE" = idle ] && [ -n "$TEST_CMD" ] && python relay-pick.py done T00 . ; then
   log "test command: $TEST_CMD"
   log "running baseline test suite (about a few minutes)"
   timeout --kill-after=60 3600 bash -c "$TEST_CMD" > "$TEST_LOG" 2>&1; base_rc=$?
   if [ "$base_rc" -ne 0 ]; then log "baseline tests FAIL on $BRANCH — fix them first. Reviews are meaningless on a red baseline."; tail -n 15 "$TEST_LOG" | tee -a "$LOG" >/dev/null; exit 1; fi
   log "baseline tests pass"
-else
+elif [ "$RESUME_PHASE" = idle ]; then
   log "baseline skipped: T00 (the project skeleton and the test command) is not done yet"
 fi
 
@@ -193,7 +204,7 @@ while true; do
   round=$((round + 1))
   if [ "$MAX_ROUNDS" -gt 0 ] && [ "$round" -gt "$MAX_ROUNDS" ]; then log "reached MAX_ROUNDS=$MAX_ROUNDS — stopping"; exit 0; fi
 
-  if [ ! -s "$TASK_FILE" ]; then
+  if [ "$RESUME_PHASE" = idle ] && [ ! -s "$TASK_FILE" ]; then
     log "round $round — choosing next task from tasks/"
     python relay-pick.py pick . >/dev/null
   fi
@@ -203,7 +214,7 @@ while true; do
     exit 0
   fi
   task=$(sed -n 2p "$TASK_FILE"); task_path=$(sed -n 1p "$TASK_FILE")
-  commit_state "dispatch $task"
+  [ "$RESUME_PHASE" != idle ] || commit_state "dispatch $task"
 
   # the task's recommended AI (planner's 'Recommended AI:' line) is used while the builder in the settings is 'auto'; never the reviewer's own model
   TASK_BUILDER_PROVIDER=""; TASK_BUILDER_MODEL=""; TASK_BUILDER_EFFORT=""
@@ -223,24 +234,48 @@ while true; do
   cfg_load
   if [ "$S_BUILDER_PROVIDER" = codex ]; then codex_pick; BUILDER_DESC="Codex model: $CODEX_PICK_DESC"; BUILDER_WHO=Codex
   else BUILDER_DESC="builder: $S_BUILDER_PROVIDER (${S_BUILDER_MODEL})"; BUILDER_WHO="$S_BUILDER_PROVIDER builder"; fi
-  log "round $round — $BUILDER_DESC"
-  log "round $round — $task — $BUILDER_WHO building"
-  before=$(git rev-parse HEAD)
-  rm -f "$COMMIT_FILE"
-  LAST_OUT=""
-  handle_requests          # decisions the person made since the last round (nothing to wait for here)
-  builder_run "$BUILD_PROMPT
-$(python relay-pick.py req prompt | tr -d '\r')"
-  builder_said=$(tail -n 40 <<<"$LAST_OUT")
-  apply_builder_commit
-  handle_requests wait     # anything the builder or the relay asked the person about: wait for Accept or Deny, then act on it
-  after=$(git rev-parse HEAD)
-  log "round $round — Codex made $(git rev-list --count "$before..$after") commit(s); running the full suite for the review"
+  case "$RESUME_PHASE" in
+    idle|building)
+      rm -f "$COMMIT_FILE"
+      LAST_OUT=""
+      handle_requests
+      relay_runtime checkpoint building "$task" "$TEST_CMD" || exit 1
+      log "round $round — $BUILDER_DESC"
+      log "round $round — $task — $BUILDER_WHO building"
+      before=$(git rev-parse HEAD)
+      builder_run "$BUILD_PROMPT
+$(python relay-pick.py req prompt | tr -d '\r')" || { relay_runtime event blocked "Builder could not finish $task"; exit 1; }
+      builder_said=$(tail -n 40 <<<"$LAST_OUT")
+      ;;
+    *)
+      before=$(relay_runtime summary | python -c 'import json,sys; print(json.load(sys.stdin).get("beforeHead","HEAD"))')
+      builder_said="Recovered from the task checkpoint; inspect the recorded commits and call history."
+      ;;
+  esac
+  case "$RESUME_PHASE" in
+    idle|building|build-ready)
+      apply_builder_commit
+      handle_requests wait
+      after=$(git rev-parse HEAD)
+      log "round $round — saved $(git rev-list --count "$before..$after") build commit(s); running the full suite for the review"
+      relay_runtime checkpoint testing "$task" "$TEST_CMD" || exit 1
+      ;;
+    *) after=$(git rev-parse HEAD);;
+  esac
 
+  if [ "$RESUME_PHASE" != reviewing ]; then
   if [ -n "$TEST_CMD" ]; then
     timeout --kill-after=60 3600 bash -c "$TEST_CMD" > "$TEST_LOG" 2>&1; test_rc=$?
     if [ "$test_rc" -eq 0 ]; then suite="PASS"; else suite="FAIL (exit $test_rc)"; fi
   else suite="not run (no test command in relay.project.json)"; : > "$TEST_LOG"; fi
+  if [ "${test_rc:-1}" -ne 0 ]; then
+    relay_runtime event blocked "Tests did not pass for $task; evidence cannot close automatic gates"
+    log "tests did not pass; task retained for a fix, without accepting a review"
+    exit 1
+  fi
+  relay_runtime checkpoint reviewing "$task" "$TEST_CMD" 0 || exit 1
+  else suite=PASS; fi
+  RESUME_PHASE=idle
   dirty=$(git status --porcelain | grep -vE "relay|CURRENT_TASK|REVIEW.md|PLAYTEST_QUEUE|^\?\? \.relay" | head -n 20)
   log "round $round — test command $suite; Claude reviewing"
 
@@ -273,12 +308,17 @@ Then decide:
     append '<task id> — <name> — NEEDS OWNER: <reason>' to $QUEUE_FILE and delete $TASK_FILE and $REVIEW_FILE.
   - Round limit: if this is review number $MAX_TASK_ROUNDS or more for this task and AUTO gates are still open, do the same with the reason 'still open after <n> rounds: <what is left>'.
   - All AUTO gates pass and only HUMAN gates remain: append '<task id> — <name> — <exactly what the person should try and what to judge>' to $QUEUE_FILE and delete $TASK_FILE and $REVIEW_FILE.
-$HOUSE_RULES"
+  - For a visual HUMAN gate, capture a fresh screenshot or clip from the tested build if the project's tooling supports it. Keep the capture under .relay/captures and attach it with:
+    python relay-runtime.py --build $(git rev-parse HEAD) artifact <task-id> <repository-relative-file> <short-note>
+    Attach only footage you verified came from that build. If you cannot capture it, give the person concrete playthrough steps in the queue entry.
+$HOUSE_RULES" || { relay_runtime restore; relay_runtime event blocked "Review failed; task restored for retry"; log "reviewer failed: keeping the current task for a retry"; exit 1; }
+  relay_runtime guard "$TEST_CMD" || { log "review evidence rejected; task retained"; exit 1; }
   restored=$(python relay-pick.py guard "$task_path" "$backup" 2>/dev/null)
   [ -z "$restored" ] || log "the reviewer ticked a HUMAN gate — put back: $(tr '\n' ' ' <<<"$restored")"
   rm -f "$backup" 2>/dev/null
   commit_state "review $task"
   log "round $round — review done: $(git log -1 --format=%s)"
+  relay_runtime checkpoint idle "$task" "$TEST_CMD" || exit 1
 
   if [ "$after" = "$before" ] && ! grep -q '^BLOCKED:' <<<"$builder_said"; then
     stalls=$((stalls + 1)); log "no new commits from the builder this round ($stalls of $MAX_STALLS)"
