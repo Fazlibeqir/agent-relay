@@ -711,6 +711,9 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/notifications/status":
                 return reply({"native": Handler.on_notify is not None, "shownAt": Handler.native_notification_shown_at})
             if p == "/review.js": return self._send(200, (HERE / "review.js").read_bytes(), "text/javascript; charset=utf-8")
+            if p in ("/dialogs.js", "/dialogs.css"):
+                mime = "text/javascript" if p.endswith(".js") else "text/css"
+                return self._send(200, (HERE / p[1:]).read_bytes(), mime + "; charset=utf-8")
             if p.startswith("/api/recordings/context?"):
                 from urllib.parse import parse_qs, urlsplit
                 try:

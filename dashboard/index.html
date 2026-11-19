@@ -1,5 +1,6 @@
 <title>Agent Relay</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/dialogs.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0.2' y1='0' x2='0.8' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3ClinearGradient id='g2' x1='0.8' y1='0' x2='0.2' y2='1'%3E%3Cstop offset='0' stop-color='%2338bdf8'/%3E%3Cstop offset='1' stop-color='%234f6bf0'/%3E%3C/linearGradient%3E%3ClinearGradient id='g3' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23a5f3fc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z' fill='url(%23g1)'/%3E%3Cpath d='M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z' fill='url(%23g2)' opacity='0.92'/%3E%3Ccircle cx='128' cy='172' r='19' fill='url(%23g3)'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#667085;--line:#e3e6ea;--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00;--bar:#e6e9ee;--acc:#2f6fed}
@@ -133,6 +134,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 </div>
 </main>
 <footer class="by" id="footby"></footer>
+<script src="/dialogs.js"></script>
 <script>
 const $=s=>document.querySelector(s);
 const fmt=s=>{s=Math.round(Math.abs(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return(h?h+":"+String(m).padStart(2,"0"):String(m))+":"+String(x).padStart(2,"0")};
@@ -230,9 +232,9 @@ function toolRow(t){const st=(SETUP.installing||{})[t.id];const hasSign="signedI
   return `<div class="tool"><span class="nm"><b>${esc(t.name)}</b>${t.role?'<br><span class="mute small">'+esc(t.role)+"</span>":""}</span><span>${info}</span></div>`}
 function wireToolButtons(root){
   root.querySelectorAll("[data-install]").forEach(b=>b.onclick=async()=>{const id=b.dataset.install,t=[...SETUP.basics,...SETUP.tools].find(x=>x.id===id);
-    if(confirm("Install "+t.name+"?"+NL+NL+"A terminal window opens and runs:"+NL+t.how+NL+NL+"It downloads software to this computer. Answer anything it asks, then come back here.")){
-      const r=await post("/api/install-tool",{id});if(!r.ok)alert(r.error);fastPoll();refreshSetup()}});
-  root.querySelectorAll("[data-login]").forEach(b=>b.onclick=async()=>{const r=await post("/api/login-tool",{id:b.dataset.login});alert(r.ok?r.message+NL+NL+"This page updates by itself when you are signed in.":r.error);fastPoll()});
+    if(await RelayDialog.ask({heading:"Install "+t.name+"?",detail:"A terminal window opens to download and install the tool."+NL+NL+t.how,action:"Install"})){
+      const r=await post("/api/install-tool",{id});if(!r.ok)RelayDialog.show(r.error,true);fastPoll();refreshSetup()}});
+  root.querySelectorAll("[data-login]").forEach(b=>b.onclick=async()=>{const r=await post("/api/login-tool",{id:b.dataset.login});RelayDialog.show(r.ok?r.message+NL+"This page updates when you sign in.":r.error,!r.ok);fastPoll()});
   root.querySelectorAll("[data-signed]").forEach(b=>b.onclick=async()=>{await post("/api/mark-signed-in",{id:b.dataset.signed});refreshSetup()})}
 function fastPoll(){FAST=Date.now()+600000}
 async function refreshSetup(){SETUP=await get("/api/setup");if(MODE==="setup"&&STEP===1)drawTools();if(MODE==="dash")drawDashTools()}
@@ -275,8 +277,8 @@ function renderCustom(sel){
   customList()}
 async function customList(){const s=await get("/api/setup");const c=(s.tools||[]).filter(t=>t.custom);const el=$("#ca_list");if(!el)return;
   el.innerHTML=c.length?"<b>Your added AIs</b>"+c.map(t=>`<div class="tool"><span class="nm"><b>${esc(t.name)}</b></span><span>${t.found?'<span class="ok">✓ found</span>':'<span class="bad">not found</span>'}</span><button data-carefresh="${t.id}">Refresh models</button><button data-caremove="${t.id}">Remove</button></div>`).join(""):"";
-  el.querySelectorAll("[data-caremove]").forEach(b=>b.onclick=async()=>{if(confirm("Remove "+b.dataset.caremove+" from this project?")){await post("/api/custom/remove",{id:b.dataset.caremove});CAT=await get("/api/models");customList();refreshSetup()}});
-  el.querySelectorAll("[data-carefresh]").forEach(b=>b.onclick=async()=>{const r=await post("/api/custom/refresh",{id:b.dataset.carefresh});alert(r.ok?r.count+" models found.":r.error);CAT=await get("/api/models")})}
+  el.querySelectorAll("[data-caremove]").forEach(b=>b.onclick=async()=>{if(await RelayDialog.ask({heading:"Remove "+b.dataset.caremove+"?",detail:"This removes the tool from this project.",action:"Remove tool"})){await post("/api/custom/remove",{id:b.dataset.caremove});CAT=await get("/api/models");customList();refreshSetup()}});
+  el.querySelectorAll("[data-carefresh]").forEach(b=>b.onclick=async()=>{const r=await post("/api/custom/refresh",{id:b.dataset.carefresh});RelayDialog.show(r.ok?r.count+" models found.":r.error,!r.ok);CAT=await get("/api/models")})}
 
 /* ------------------------------------------------------------ step 2: project */
 function cleanName(n){return n.replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim()}
@@ -445,7 +447,7 @@ async function attachAndPlan(){
   if(FORM.taskMode==="have"&&!FORM.taskPath.trim()&&!FORM.taskText.trim())return msg('<span class="bad">Choose your task list file or paste it.</span>');
   if(FORM.taskMode==="none"&&!FORM.goal.trim())return msg('<span class="bad">Say what you want done on the project.</span>');
   if(!i.isGit&&!FORM.initGit)return msg('<span class="bad">Tick "Make it a git project" so the relay can keep its work separate.</span>');
-  if(!confirm("Set up "+i.name+"?"+NL+NL+(i.needsBranch?"The app will switch the project to a new branch called agent-run (your "+i.branch+" branch is not touched), and add the relay scripts there."+NL:"The app will add the relay scripts to the current branch."+NL)+"Your own files are not changed."))return;
+  if(!await RelayDialog.ask({heading:"Set up "+i.name+"?",detail:i.needsBranch?"Relay will create or switch to the agent-run branch and add its scripts there.":"Relay will add its scripts to the current branch.",action:"Set up project"}))return;
   $("#go2").disabled=true;msg('<span class="warnc">Setting up…</span>');
   const a=await post("/api/project/attach",{path:FORM.existPath,initGit:FORM.initGit});
   if(!a.ok){msg('<span class="bad">'+esc(a.error)+"</span>");$("#go2").disabled=false;return}
@@ -463,7 +465,7 @@ function drawDrives(){
     return `<div class="drive ${sel?"sel":""}" data-root="${esc(root)}"><input type="radio" ${sel?"checked":""}><span style="min-width:120px"><b>${esc(d.label)}</b>${d.path===ENV.recommended?'<span class="tag">recommended</span>':""}</span>${bar(d.usedPct)}<span class="${low?"warnc":"mute"} small" style="min-width:150px">${d.freeGb} GB free of ${d.totalGb} GB${low?" (almost full)":""}</span></div>`}).join("")+
     `<div class="drive ${ENV.drives.some(d=>projectsRoot(d)===FORM.root)?"":"sel"}" id="otherdrive"><input type="radio" ${ENV.drives.some(d=>projectsRoot(d)===FORM.root)?"":"checked"}><span><b>Another folder…</b> <span class="mute small">${ENV.drives.some(d=>projectsRoot(d)===FORM.root)?"":esc(FORM.root)}</span></span></div>`;
   document.querySelectorAll(".drive[data-root]").forEach(d=>d.onclick=()=>{FORM.root=d.dataset.root;drawDrives();pathPreview()});
-  $("#otherdrive").onclick=async()=>{const r=await post("/api/pick-folder",{title:"Choose where to put the project folder"});if(r.ok&&r.path){FORM.root=r.path;drawDrives();pathPreview()}else if(!r.ok){const t=prompt("Type the folder to put the project in:",FORM.root);if(t){FORM.root=t;drawDrives();pathPreview()}}}}
+  $("#otherdrive").onclick=async()=>{const r=await post("/api/pick-folder",{title:"Choose where to put the project folder"});if(r.ok&&r.path){FORM.root=r.path;drawDrives();pathPreview()}else if(!r.ok){const t=await RelayDialog.ask({heading:"Choose a project folder",fieldLabel:"Folder path",value:FORM.root,action:"Use folder"});if(t){FORM.root=t;drawDrives();pathPreview()}}}}
 function pathPreview(){const n=cleanName(FORM.name||"your-project");$("#pathprev").innerHTML="The project folder will be: <code>"+esc(joinPath(FORM.root||"",n))+"</code>"}
 async function drawHost(){
   const g=await get("/api/wizard");const h=g.githost;
@@ -473,8 +475,8 @@ async function drawHost(){
   $("#hostbox").innerHTML=`<div class="opt"><input type="radio" name="host" value="local" ${FORM.host==="local"?"checked":""}><div><b>Keep it on this computer only</b> <span class="mute small">(you can connect GitHub or GitLab later)</span></div></div>`+row("github","GitHub")+row("gitlab","GitLab");
   $("#hostbox").querySelectorAll("[name=host]").forEach(r=>r.onchange=()=>{FORM.host=r.value;FORM.remote=false;drawHost()});
   const fr=$("#f_remote");if(fr)fr.onchange=()=>{FORM.remote=fr.checked};
-  $("#hostbox").querySelectorAll("[data-hinst]").forEach(b=>b.onclick=async()=>{const r=await post("/api/install-toolchain",{id:b.dataset.hinst});alert(r.ok?r.message:r.error);fastPoll();setTimeout(drawHost,15000)});
-  $("#hostbox").querySelectorAll("[data-hlogin]").forEach(b=>b.onclick=async()=>{const r=await post("/api/githost/login",{id:b.dataset.hlogin});alert(r.ok?r.message:r.error);setTimeout(drawHost,20000)})}
+  $("#hostbox").querySelectorAll("[data-hinst]").forEach(b=>b.onclick=async()=>{const r=await post("/api/install-toolchain",{id:b.dataset.hinst});RelayDialog.show(r.ok?r.message:r.error,!r.ok);fastPoll();setTimeout(drawHost,15000)});
+  $("#hostbox").querySelectorAll("[data-hlogin]").forEach(b=>b.onclick=async()=>{const r=await post("/api/githost/login",{id:b.dataset.hlogin});RelayDialog.show(r.ok?r.message:r.error,!r.ok);setTimeout(drawHost,20000)})}
 function fillPlannerModels(){
   const prov=$("#f_prov").value,c=(CAT||{})[prov];if(!c){$("#f_model").innerHTML="";$("#f_effort").innerHTML="";return}
   const ms=$("#f_model");ms.innerHTML=selOpts(c.models,FORM.model||defaultModel(prov),"");
@@ -549,8 +551,8 @@ async function drawPlanDone(){
     ${req.length?req.map(r=>`<div class="tool"><span class="nm"><b>${esc(r.name)}</b></span><span>${r.found?'<span class="ok">✓ found</span>':`<span class="warnc">✗ missing</span> ${r.canInstall?`<button data-tc="${r.id}" class="pri">Install</button> <span class="mute small"><code>${esc(r.how)}</code></span>`:`<a href="${esc(r.url)}" target="_blank">download it</a>`}`}</span></div>`).join(""):'<div class="mute">The plan does not name any extra programs.</div>'}
     <div class="nav"><button id="plan-back">Back</button><button id="next3" class="pri">${FORM.workspacePlan?"Open tasks":"Continue"}</button></div></div>`;
   $("#plan-back").onclick=FORM.workspacePlan?backToTasks:()=>go(2);
-  document.querySelectorAll("[data-tc]").forEach(b=>b.onclick=async()=>{const r=await post("/api/install-toolchain",{id:b.dataset.tc});alert(r.ok?r.message:r.error);fastPoll()});
-  $("#next3").onclick=()=>{if(FORM.workspacePlan){backToTasks();return}const miss=req.filter(r=>!r.found);if(miss.length&&!confirm("These are still missing: "+miss.map(m=>m.name).join(", ")+". The tests may fail without them. Continue anyway?"))return;go(4)}}
+  document.querySelectorAll("[data-tc]").forEach(b=>b.onclick=async()=>{const r=await post("/api/install-toolchain",{id:b.dataset.tc});RelayDialog.show(r.ok?r.message:r.error,!r.ok);fastPoll()});
+  $("#next3").onclick=async()=>{if(FORM.workspacePlan){backToTasks();return}const miss=req.filter(r=>!r.found);if(miss.length&&!await RelayDialog.ask({heading:"Continue with missing tools?",detail:miss.map(m=>m.name).join(", ")+" are missing. Tests may fail until they’re installed.",action:"Continue"}))return;go(4)}}
 
 /* ------------------------------------------------------------ step 4: which AI builds what */
 async function taskTable(sel,onchange,opts){
@@ -589,11 +591,11 @@ async function taskTable(sel,onchange,opts){
       tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save;
     }
     tr.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;let r;
-      if(a==="approve"){if(!confirm("Mark "+k.id+" as OK?"+NL+NL+"This ticks your own check on the task and finishes it. You are the one saying it is fine."))return;r=await post("/api/task/approve",{task:k.id})}
-      else if(a==="changes"){const note=prompt("What should be fixed or changed in "+k.id+"?"+NL+"Be specific: the AI must address exactly this.");if(!note)return;r=await post(res.mode==="files"?"/api/task/feedback":"/api/task/changes",{task:k.id,note})}
+      if(a==="approve"){if(!await RelayDialog.ask({heading:"Approve "+k.id+"?",detail:"This records your sign-off.",action:"Approve"}))return;r=await post("/api/task/approve",{task:k.id})}
+      else if(a==="changes"){const note=await RelayDialog.ask({heading:"Request changes for "+k.id,fieldLabel:"What should change?",action:"Send feedback"});if(!note)return;r=await post(res.mode==="files"?"/api/task/feedback":"/api/task/changes",{task:k.id,note})}
       else if(a==="cancel"){r=await post("/api/task/cancel",{task:k.id,kind:b.dataset.kind})}
-      else{r=await post("/api/task/next",{task:k.id});if(r.ok)alert(k.id+" will be built next (when the relay picks its next task).")}
-      if(!r.ok){alert(r.error);return}refresh();tick()})})}
+      else{r=await post("/api/task/next",{task:k.id});if(r.ok)RelayDialog.show(k.id+" was moved to the front of the queue.")}
+      if(!r.ok){RelayDialog.show(r.error,true);return}refresh();tick()})})}
 async function stepModels(){
   $("#step").innerHTML=`<div class="card"><h3>4. Which AI builds what</h3>
     <div class="mute">The planner suggested an AI and a reasoning level for every task, from the AIs you have ready: simple tasks get a cheaper or free model, hard ones the strongest. You do not need to change anything. If you change one, only that task changes.</div>
@@ -614,7 +616,7 @@ async function stepStart(){
     </div>
     <div class="mute" style="margin-top:12px">When you press Start the relay runs the tests, then works through the tasks one at a time by itself. It never pushes or merges, never ticks a gate that needs your judgement, and stops by itself when everything is done or waiting for you. You can watch it here and stop it any time.</div>
     <div class="nav"><button onclick="go(4)">Back</button><button class="go" id="gostart">Start the relay</button></div></div>`;
-  $("#gostart").onclick=async()=>{const r=await startRelay();if(!r.ok){if(!r.needsDecision)alert(r.error);return}
+  $("#gostart").onclick=async()=>{const r=await startRelay();if(!r.ok){if(!r.needsDecision)RelayDialog.show(r.error,true);return}
     MODE="dash";WZ=await get("/api/wizard");apply();setTimeout(tick,3000)}}
 
 function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart][STEP]()}
@@ -741,7 +743,7 @@ function renderRequests(list){
       <div class="small warnc" style="margin-top:6px">${esc(t.risk)}</div>${r.task?`<div class="small mute">while working on ${esc(r.task)}</div>`:""}
       <div class="row2" style="margin-top:8px"><input data-note="${esc(r.id)}" size="34" placeholder="Note for the AI (optional)"><button class="go" data-dec="approve" data-id="${esc(r.id)}">${esc(t.yes)}</button><button data-dec="deny" data-id="${esc(r.id)}">${esc(t.no)}</button></div></div>`}).join("")+doneHtml;
   document.querySelectorAll("[data-dec]").forEach(b=>b.onclick=async()=>{const id=b.dataset.id,n=document.querySelector('[data-note="'+id+'"]');
-    const r=await post("/api/requests/decide",{id,decision:b.dataset.dec,note:n?n.value:""});if(!r.ok)alert(r.error);tick()})}
+    const r=await post("/api/requests/decide",{id,decision:b.dataset.dec,note:n?n.value:""});if(!r.ok)RelayDialog.show(r.error,true);tick()})}
 function render(s){
   $("#tasksource").textContent=WZ?.project?.script==="relay.sh"?"This project uses its own task board.":"Tasks and reviews are saved on this computer.";
   renderRuntime(s.runtime||{},s.relay||"");
@@ -825,12 +827,12 @@ notificationButton.onclick=async()=>{
   $("#runtime-notice").textContent=enabled?"Notifications enabled for finished, blocked and review-ready tasks.":"Desktop notifications are off. Events remain in this panel.";
 };
 $("#btnworktree").onclick=async()=>{
-  if(!confirm("Create a separate branch and workspace from the last commit? Unsaved edits stay here. This does not start a worker."))return;
+  if(!await RelayDialog.ask({heading:"Create a separate workspace?",detail:"Relay will create a branch and workspace from the last commit. Unsaved edits stay in this workspace.",action:"Create workspace"}))return;
   const result=await post("/api/worktrees/create");
   $("#runtime-notice").textContent=result.ok?result.message+" "+result.path:(result.error||"Could not create workspace");
 };
 $("#btnretry").onclick=async()=>{
-  if(!confirm("Retry this task using the current edits? This resets its task call/failure budget, keeps daily provider caps, and preserves unsaved work. Stop the worker first. This does not approve any task gate."))return;
+  if(!await RelayDialog.ask({heading:"Retry with the current edits?",detail:"Relay resets this task’s call and failure limits and keeps your edits. Daily provider limits still apply.",action:"Retry task"}))return;
   const result=await post("/api/runtime/retry");$("#runtime-notice").textContent=result.ok?"Retry approved. Press Start to continue the task.":result.error;
 };
 
@@ -902,10 +904,10 @@ async function startRelay(){
   let r=await post("/api/relay/start");
   if(!r.ok&&r.needsDecision==="unfinished"){
     const list=(r.files||[]).slice(0,8).join(NL)+(r.count>8?NL+"... and "+(r.count-8)+" more":"");
-    if(!confirm(r.error+NL+NL+list+NL+NL+"OK: save these changes in a folder next to the project (nothing is lost), clean the project, and start."+NL+"Cancel: do nothing, so you can commit them yourself first."))return r;
+    if(!await RelayDialog.ask({heading:"Save changes before starting?",detail:r.error+NL+NL+list+NL+NL+"Relay will move these changes into a folder next to the project, then start with a clean workspace.",action:"Save aside and start"}))return r;
     r=await post("/api/relay/start",{saveAside:true})}
   return r}
-$("#btnstart").onclick=async()=>{const r=await startRelay();if(!r.needsDecision)alert(r.ok?r.message:r.error);setTimeout(tick,3000)};
+$("#btnstart").onclick=async()=>{const r=await startRelay();if(!r.needsDecision)RelayDialog.show(r.ok?r.message:r.error,!r.ok);setTimeout(tick,3000)};
 $("#update-runner").onclick=async event=>{
   const button=event.currentTarget, status=$("#runner-update-status"), project=WZ.project.path;
   button.dataset.busy="true"; status.textContent="Updating Relay…"; headerButtons();
@@ -923,11 +925,11 @@ $("#update-runner").onclick=async event=>{
 };
 $("#workspace-add").onclick=()=>{TT.openTask=true;showTab("tasks")};
 $("#workspace-plan").onclick=showWorkspacePlanner;
-$("#btnstop").onclick=async()=>{if(!confirm("Stop Relay now?"+NL+NL+"Your work stays in the project."))return;
-  const r=await post("/api/relay/stop");alert(r.ok?"Stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")));setTimeout(tick,1500)};
-$("#btnnew").onclick=async()=>{if(!confirm("Switch projects? Your current tasks are saved. A running project keeps working."))return;
+$("#btnstop").onclick=async()=>{if(!await RelayDialog.ask({heading:"Stop Relay?",detail:"Your work stays in the project.",action:"Stop Relay"}))return;
+  const r=await post("/api/relay/stop");RelayDialog.show(r.ok?"Relay stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")),!r.ok);setTimeout(tick,1500)};
+$("#btnnew").onclick=async()=>{if(!await RelayDialog.ask({heading:"Switch projects?",detail:"Your tasks are saved. Any active Relay worker keeps running.",action:"Switch projects"}))return;
   await post("/api/project/forget");MODE="setup";STEP=2;JOB=null;FORM={name:"",idea:"",stack:"",root:FORM.root,host:"local",remote:false,prov:FORM.prov,model:"",effort:"",mode:"new",existPath:"",taskMode:"none",taskPath:"",taskText:"",goal:""};WZ=await get("/api/wizard");apply()};
-$("#btnquit").onclick=async()=>{if(confirm("Close the Agent Relay app?"+NL+NL+"A relay that is running keeps running; this only closes the window and the page.")){await post("/api/quit");document.body.innerHTML='<main><div class="card">Agent Relay has closed. You can close this tab. Open the app again to come back.</div></main>'}};
+$("#btnquit").onclick=async()=>{if(await RelayDialog.ask({heading:"Close Agent Relay?",detail:"Any active Relay worker keeps running.",action:"Close app"})){await post("/api/quit");document.body.innerHTML='<main><div class="card">Agent Relay has closed. You can close this tab.</div></main>'}};
 setInterval(()=>{$("#clock").textContent=new Date().toLocaleTimeString();if(MODE==="dash")tick()},3000);
 setInterval(()=>{if(Date.now()<FAST||(MODE==="setup"&&STEP===1))refreshSetup()},4000);
 boot();

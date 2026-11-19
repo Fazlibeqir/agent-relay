@@ -169,6 +169,7 @@ def page(project):
            "<b>Needs changes</b> is your feedback: the task stays open until you approve it.") if mode == "relay.sh" else \
           ("<b>Looks good</b> ticks your own check and finishes the task. <b>Needs changes</b> adds your note as a new check; the relay builds the fix next.")
     return """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review: %(name)s</title>
+<link rel="stylesheet" href="/dialogs.css">
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#667085;--line:#e3e6ea;--ok:#1a7f4b;--warn:#b26a00;--bar:#e6e9ee;--acc:#2f6fed}
 @media (prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#161b22;--ink:#e6edf3;--mute:#8b949e;--line:#2a313a;--ok:#3fb950;--warn:#d29922;--bar:#262d36;--acc:#5b8cff;color-scheme:dark}}
@@ -191,23 +192,29 @@ button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visi
 <div class="intro">Try the change or watch the attached clip. %(how)s</div>
 %(cards)s%(empty)s
 %(idle)s
-</main><script>
+</main><script src="/dialogs.js"></script><script>
 async function post(p,b){const r=await fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});return r.json()}
 document.querySelectorAll("[data-attach]").forEach(button=>button.onclick=async()=>{
   const task=button.dataset.attach,path=document.querySelector('[data-artifact-path="'+task+'"]').value.trim();
   if(!path)return;
   const {revision,build}=button.closest('.card').dataset;
-  if(build&&!confirm("Attach this file as evidence for build "+build.slice(0,12)+"?"))return;
+  if(build&&!await RelayDialog.ask({heading:"Confirm the attachment’s build",detail:"Attach this file as evidence for build "+build.slice(0,12)+".",action:"Attach file"}))return;
   const result=await post('/api/artifacts/add',{task,path,revision,build});
-  if(!result.ok){alert(result.error||'Could not attach file');return}location.reload();
+  if(!result.ok){RelayDialog.show(result.error||'Could not attach file',true);return}location.reload();
 });
 document.querySelectorAll("button[data-a]").forEach(b=>b.onclick=async()=>{const t=b.dataset.t,a=b.dataset.a,{revision,build}=b.closest('.card').dataset;let r;
-  if(a==="approve"){if(!confirm(build?"Confirm you reviewed and approve build "+build.slice(0,12)+" for "+t+"?":"Mark "+t+" as OK?"))return;r=await post("/api/task/approve",{task:t,revision})}
-  else{const note=prompt("What should change in this review?");if(!note)return;r=await post("/api/task/changes",{task:t,note,revision})}
-  if(!r.ok){alert(r.error||"Could not do that");return}location.reload()});
+  if(a==="approve"){
+    if(!await RelayDialog.ask({heading:"Approve "+t+"?",detail:build?"Confirm you reviewed build "+build.slice(0,12)+".":"This records your sign-off.",action:"Approve review"}))return;
+    r=await post("/api/task/approve",{task:t,revision})
+  }else{
+    const note=await RelayDialog.ask({heading:"Request changes for "+t,fieldLabel:"What should change in this review?",action:"Send feedback"});
+    if(!note)return;
+    r=await post("/api/task/changes",{task:t,note,revision})
+  }
+  if(!r.ok){RelayDialog.show(r.error||"Could not save the review decision",true);return}location.reload()});
 document.querySelectorAll("[data-refresh-review]").forEach(b=>b.onclick=async()=>{
   const r=await post("/api/task/feedback",{task:b.dataset.refreshReview,note:"Run the checks and queue a review tied to the tested build."});
-  if(!r.ok){alert(r.error||"Could not request a review");return}location.reload()
+  if(!r.ok){RelayDialog.show(r.error||"Could not request a review",true);return}location.reload()
 });
 </script><script src="/review.js" defer></script>""" % {"name": esc(name), "n": waiting, "s": "" if waiting == 1 else "s", "how": how, "cards": "".join(cards), "projectid": hashlib.sha256(str(pathlib.Path(project).resolve()).encode()).hexdigest(), "maxbytes": reviewmedia.MAX_CLIP_BYTES, "maxseconds": reviewmedia.MAX_CAPTURE_SECONDS, "tasksource": "Custom project workflow with local task snapshots. External board access depends on its configured integration." if mode == "relay.sh" else "Tasks and reviews are stored in this project. No Notion account is needed.",
                 "empty": '<div class="intro">Nothing is waiting for you right now.</div>' if not its else "",

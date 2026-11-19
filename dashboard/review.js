@@ -45,7 +45,7 @@ class ReviewClip{
   }
   async start(){
     if(activeCapture){this.status.textContent='Stop the other recording before starting another.';return}
-    if(this.build&&!confirm('Is the window you’ll share running build '+this.build.slice(0,12)+'?'))return;
+    if(this.build&&!await RelayDialog.ask({heading:'Confirm the recording’s build',detail:'Share a window running build '+this.build.slice(0,12)+'.',action:'Choose window',trigger:this.record}))return;
     activeCapture=this;this.busy=true;this.update();this.timerLabel.textContent='';this.status.textContent='Choose the window or app to show the reviewer.';
     try{
       this.stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:15,width:{ideal:1280},height:{ideal:720}},audio:false});
@@ -92,7 +92,7 @@ class ReviewClip{
     if(file.size>MAX_CLIP_BYTES||!file.size){this.status.textContent='Choose a nonempty clip of 45 MB or less.';this.file.value='';return}
     const mime=file.type.split(';')[0]||(/\.mp4$/i.test(file.name)?'video/mp4':/\.webm$/i.test(file.name)?'video/webm':'');
     if(!['video/webm','video/mp4'].includes(mime)){this.status.textContent='Choose a WebM or MP4 video.';this.file.value='';return}
-    if(this.build&&!confirm('Does this clip show build '+this.build.slice(0,12)+'?')){this.file.value='';return}
+    if(this.build&&!await RelayDialog.ask({heading:'Confirm the clip’s build',detail:'This clip should show build '+this.build.slice(0,12)+'.',action:'Upload clip',trigger:this.file})){this.file.value='';return}
     this.busy=true;this.timerLabel.textContent='';this.update();
     try{
       this.captureContext=await this.context();this.duration=null;this.source='upload';
