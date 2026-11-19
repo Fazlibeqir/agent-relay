@@ -663,6 +663,10 @@ class Handler(BaseHTTPRequestHandler):
                 if mode == "relay.sh":      # a project whose board is elsewhere: leave a request for its dispatcher
                     if path.endswith("cancel"): return reply(appapi.owner_cancel(Handler.relay, body.get("task", ""), body.get("kind", "")))
                     kind = {"approve": "approved", "changes": "fix", "next": "next"}[path.rsplit("/", 1)[1]]
+                    if kind != "next":
+                        result = appapi.decide_board_review(Handler.relay, body.get("task", ""), body.get("revision", ""),
+                                                           kind, body.get("note", ""))
+                        return reply(result, 200 if result["ok"] else 409)
                     return reply(appapi.owner_request(Handler.relay, kind, body.get("task", ""), body.get("note", "")))
                 return reply({"ok": False, "error": "This project has no relay yet."}, 400)
             if path == "/api/task/recommend":

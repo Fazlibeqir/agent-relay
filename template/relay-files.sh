@@ -227,7 +227,7 @@ while true; do
       claude) command -v "${CLAUDE_BIN:-claude}" >/dev/null 2>&1 || ok_rec=0;;
       codex) [ -n "${CODEX_BIN:-}" ] || ok_rec=0;;
       copilot) [ -n "${COPILOT_BIN:-}" ] || ok_rec=0;;
-      opencode) command -v opencode >/dev/null 2>&1 || ok_rec=0;;
+      opencode) command -v "${OPENCODE_BIN:-opencode}" >/dev/null 2>&1 || ok_rec=0;;
     esac
     [ "$ok_rec" -eq 1 ] && { TASK_BUILDER_PROVIDER=$rec_p; TASK_BUILDER_MODEL=${rec_m:-}; TASK_BUILDER_EFFORT=${rec_e:-}; log "round $round — recommended AI for $task: $rec_p ${rec_m:-} ${rec_e:+($rec_e reasoning)}"; }
   fi

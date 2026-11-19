@@ -95,3 +95,11 @@ All 86 Windows tests passed. The current checks cover local file access for Code
 - [x] Verify the reject, rebuild and approve flow in the packaged Windows app using a disposable camera project with simulated test evidence.
 
 Relay records the tested Git commit and attachment checksum. The reviewer or person recording a clip confirms which build was running in the captured window. Custom board workflows still use their own sign-off integration.
+
+## Backup checks and custom-board review bridge
+
+- [x] Check OpenCode and GitHub Copilot in a temporary project and allow passing launchers to qualify as checked backups.
+- [x] Publish a numbered review from accepted custom-board evidence and a fresh playthrough entry.
+- [x] Carry the reviewed build and revision into the custom board's owner mailbox.
+
+All 90 Windows tests passed. The packaged Windows app verified both backup checks with mock launchers and recorded an approval for the exact build in a simulated custom-board project. The live Project X Notion runner still needs to adopt the updated helper.

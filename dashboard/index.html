@@ -565,8 +565,7 @@ async function taskTable(sel,onchange,opts){
   const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done",approved:"approved by you"};
   const actions=k=>{const c=catOf(k,cur);if(!acts)return"";
     const cancel=res.mode==="board"?(k.queuedNext?` <button data-act="cancel" data-kind="next" title="Take it off the priority list">✕ next</button>`:"")+(k.fixRequested?` <button data-act="cancel" data-kind="fix" title="Withdraw your feedback">✕ fix</button>`:""):"";
-    if(c==="review"&&(opts.hideAI||res.mode==="files"))return `<a class="btnlink" href="/digest#c-${esc(k.id)}">Review task</a>`;
-    if(c==="review")return`<button class="go" data-act="approve">Looks good</button> <button data-act="changes">Needs changes…</button>${cancel}`;
+    if(c==="review")return `<a class="btnlink" href="/digest#c-${esc(k.id)}">Review task</a>${cancel}`;
     if(c==="building")return`<button data-act="changes">Fix…</button>${cancel}`;
     if(c==="progress")return`<button data-act="next">Build next</button> <button data-act="changes">Fix…</button>${cancel}`;
     if(c==="new")return`<button data-act="next">Build next</button>${cancel}`;

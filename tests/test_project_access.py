@@ -1,5 +1,7 @@
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,7 +32,7 @@ class ProjectAccessTests(unittest.TestCase):
         self.runtime = appapi.runtime_for(self.project)
 
     def test_challenge_must_be_read_and_written_and_checks_are_project_local(self):
-        def copy_challenge(provider, launcher, folder, prompt):
+        def copy_challenge(provider, launcher, folder, prompt, model):
             self.assertEqual(provider, "codex")
             self.assertEqual(folder.parent, self.project / ".relay")
             self.assertTrue((folder / ".git").is_dir())
@@ -76,6 +78,37 @@ class ProjectAccessTests(unittest.TestCase):
             self.assertFalse(appapi.project_access(self.project)["supported"])
             self.assertFalse(appapi.check_project_access(self.project, "codex")["ok"])
             run.assert_not_called()
+
+    def test_backup_cli_checks_use_project_models_and_read_write_tools(self):
+        config = self.runtime.config()
+        config["models"].update(opencode="example/fixture-model", copilot="fixture-reviewer")
+        (self.project / "relay.settings.json").write_text(json.dumps(config), encoding="utf-8")
+
+        for provider, model in (("opencode", "example/fixture-model"), ("copilot", "fixture-reviewer")):
+            with self.subTest(provider=provider), patch.dict(os.environ, {provider.upper() + "_MODEL": ""}):
+                original = subprocess.Popen
+
+                def launch(command, **kwargs):
+                    if command[0] != str(self.launcher):
+                        return original(command, **kwargs)
+                    cwd, env = kwargs["cwd"], kwargs["env"]
+                    self.assertIn(model, command)
+                    self.assertNotIn("--allow-all", command)
+                    if provider == "opencode":
+                        self.assertIn("--pure", command)
+                        self.assertEqual(json.loads(env["OPENCODE_PERMISSION"])["*"], "deny")
+                    else:
+                        self.assertIn("--available-tools=view,create,edit", command)
+                        self.assertIn("--disable-builtin-mcps", command)
+                    (cwd / "result.txt").write_bytes((cwd / "input.txt").read_bytes())
+                    return process.return_value
+
+                with patch.object(appapi.subprocess, "Popen", side_effect=launch) as process:
+                    spawn = process.return_value
+                    spawn.__enter__.return_value = spawn
+                    spawn.returncode = 0
+                    self.assertTrue(appapi.check_project_access(self.project, provider)["passed"])
+                self.assertEqual(self.runtime.access_status(provider), "passed")
 
 
 if __name__ == "__main__":

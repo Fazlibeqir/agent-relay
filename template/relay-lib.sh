@@ -108,6 +108,12 @@ run() {  # run <label> <prompt> <command...> — the prompt goes in on stdin; re
 # usage the build goes to the next tool in the fallback chain instead of sleeping.
 GIT_DENY=(push merge rebase reset stash checkout switch branch clean worktree)
 if [ -z "${COPILOT_BIN:-}" ]; then COPILOT_BIN=$(ls -d "$HOME"/AppData/Local/github-copilot-sdk/cli/*/copilot.exe 2>/dev/null | sort -V | tail -n 1); fi
+if [ -z "${COPILOT_BIN:-}" ]; then
+  copilot_candidate=$(command -v copilot || true)
+  if [ -n "$copilot_candidate" ] && "$copilot_candidate" --version 2>/dev/null | grep -qi 'copilot'; then
+    COPILOT_BIN=$copilot_candidate
+  fi
+fi
 
 tool_run() {  # 0 success, 1 unavailable, 2 quota, 3 failed, 4 policy-blocked.
   local tool=$1 prompt=$2 model=${3:-} effort=${4:-} cmd=() live rc out g deny call_id=""
@@ -130,9 +136,9 @@ tool_run() {  # 0 success, 1 unavailable, 2 quota, 3 failed, 4 policy-blocked.
       cmd=("$COPILOT_BIN" -p "Your complete task is in the file relay-fallback-prompt.txt in the current folder. Read it and carry it out exactly, following every rule in it. Never commit that file." --allow-all --model "$model" -s)
       for g in "${GIT_DENY[@]}"; do cmd+=("--deny-tool=shell(git $g)"); done;;
     opencode)
-      command -v opencode >/dev/null || return 1
+      command -v "${OPENCODE_BIN:-opencode}" >/dev/null || return 1
       [ -n "$model" ] && [ "$model" != auto ] || model=${OPENCODE_MODEL:-$S_OPENCODE_MODEL}
-      cmd=(opencode run --auto -m "$model");;
+      cmd=("${OPENCODE_BIN:-opencode}" run --auto -m "$model");;
     *)  # a custom AI the person added (relay.providers.json): its command comes from the settings helper
       local spec=()
       mapfile -t spec < <(python relay-settings.py cmd relay.settings.json "$tool" "${model:-auto}" "${effort:-auto}" 2>/dev/null | tr -d '\r')

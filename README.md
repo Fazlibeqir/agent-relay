@@ -127,7 +127,7 @@ Declare each provider's verified capabilities under `capabilities` in settings. 
 
 Capabilities are declarations, not connector installations or sign-ins. Relay never assumes that one AI's connector exists in another. Custom tools start with no declared capabilities.
 
-For standard projects, open **AIs & settings** and choose **Check access** beside Codex or Claude Code. The check makes one AI call in a temporary Git folder inside the project. The tool reads a random value and writes it back to a new file. Relay removes the folder and stores the result for that checkout and launcher. A failed check skips that tool during assignment. Use **Use only AI tools that pass** to require a passing result. Recheck after changing accounts or tool permissions. The check covers file access, and connector permissions remain separate.
+For standard projects, open **AIs & settings** and choose **Check access** beside Codex, Claude Code, OpenCode or GitHub Copilot. The check makes one AI call in a temporary Git folder inside the project. The tool reads a random value and writes it back to a new file. Relay removes the folder and stores the result for that checkout and launcher. A failed check skips that tool during assignment. Use **Use only AI tools that pass** to require a passing result. Recheck after changing accounts or tool permissions. The check covers file access, and connector permissions remain separate.
 
 Settings also contain call/failure budgets and per-call timeouts (`limits`; see the example file). Calls include primary providers and quota responses. Identical failures stop that provider from repeating the same attempt. No-output warnings report inactivity, not a proven hang; a quiet tool may still be working. The timeout bounds the call. An explicit `AGENT_TIMEOUT` environment value overrides the setting.
 
@@ -160,6 +160,8 @@ Saving or watching a clip never checks a HUMAN gate. Approval still requires **L
 Blocked, finished and review-ready events appear in the app. **Enable desktop notifications** is optional and requests browser permission only after that button is pressed. Unsupported/denied notifications leave the in-app events available. No push service is used.
 
 **Custom Notion runners:** the Project X checkout uses its own `relay.sh` with the shared checkpoint helper. Dispatcher and reviewer providers need a declared `notion` capability. Dispatch reads the board and writes the local task snapshot. During review, a checkpoint binds both test commands and the saved log to the tested commit. If the worker stops before a reviewer runs, Start can continue from that evidence.
+
+Custom runners using the updated `relay-runtime.py` can publish a numbered review through `board-check`. The reviewer must leave a fresh playthrough entry in `PLAYTEST_QUEUE.md` and a local task snapshot with only human checks open. A decision made from its review card records the revision and tested build in the owner mailbox. Human sign-off on Notion is recorded separately.
 
 If the activity panel says the Notion review started and the worker is stopped, compare the task page and local task files first. The provider may have written to Notion before it stopped. After reconciling those records, run `python relay-runtime.py board-reconcile <task-id>` in the Project X Relay checkout. This acknowledges reconciliation locally. It does not edit the board or approve a task. Review can then proceed on fresh evidence.
 

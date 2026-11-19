@@ -221,6 +221,36 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "matching evidence"):
             self.runtime.board_check("headless\ngraphics")
 
+    def test_notion_board_queues_new_numbered_review_and_scopes_owner_mailbox(self):
+        import appapi
+        import digest
+
+        (self.root / "relay.sh").write_text("# Custom board runner\n")
+        self.git("add", "relay.sh")
+        self.git("commit", "-qm", "fixture board runner")
+        queue = self.root / "PLAYTEST_QUEUE.md"
+        queue.write_text("T01 — Camera — Old steps\n", encoding="utf-8")
+        cmd = "headless\ngraphics"
+        title = "T01 — Test"
+        self.board_ready()
+        self.runtime.board_ready(title, cmd, 0, 0)
+        reviewer = self.runtime.begin("reviewer", "claude", "claude-sonnet-test", "relay-live-claude.log")
+        self.task.write_text(self.task.read_text().replace("[ ] AUTO:", "[x] AUTO:"), encoding="utf-8")
+        queue.write_text("T01 — Camera — Try the new turn speed\n", encoding="utf-8")
+        self.runtime.finish(reviewer, 0, "success")
+        self.runtime.board_check(cmd)
+        self.runtime.board_check(cmd)
+        self.runtime.checkpoint("idle", title, cmd)
+        reviews = self.runtime.state()["reviews"]["T01"]
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["toTry"], "Try the new turn speed")
+        self.assertIn("Camera · Review 1", digest.page(self.root))
+        self.assertFalse(appapi.decide_board_review(self.root, "T01", "", "approved")["ok"])
+        self.assertTrue(appapi.decide_board_review(self.root, "T01", reviews[0]["id"], "approved")["ok"])
+        request = appapi.owner_requests(self.root)[0]
+        self.assertEqual(request["build"], reviews[0]["build"])
+        self.assertIn("[ ] HUMAN", self.task.read_text())
+
     def test_notion_roles_require_connector_but_builder_does_not(self):
         with patch.dict(os.environ, {"RELAY_NOTION_BOARD": "1"}):
             self.assertFalse(self.runtime.eligible("dispatcher", "codex", "auto")[0])

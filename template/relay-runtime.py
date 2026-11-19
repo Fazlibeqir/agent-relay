@@ -557,11 +557,11 @@ class Runtime:
             raise ValueError("Notion review input changed while tests ran")
         if headless_code != 0 or graphics_code not in (0, None):
             raise ValueError("Notion review needs passing tests and any enabled graphics checks")
-        import shutil
         log = self.directory / "evidence" / (uuid.uuid4().hex + ".log")
         log.parent.mkdir(exist_ok=True)
         shutil.copyfile(self.root / "relay-tests.log", log)
         state.update(phase="notion-review-ready", graphicsRan=graphics_code is not None,
+                     boardQueueBefore=self.review_queue_lines(),
                      evidence={"head": head, "commandHash": state["commandHash"], "exitCode": 0,
                                "codeHash": state["testedCode"], "log": log.relative_to(self.root).as_posix(),
                                "sha256": digest(log), "at": time.time()})
@@ -586,12 +586,27 @@ class Runtime:
             return "blocked"
         return self._resume(command, recover_build=False)
 
+    @synchronized
     def board_check(self, command):
         state = self.state()
         call = next((c for c in state["calls"] if c["id"] == state.get("boardReviewCall")), {})
         if (state.get("phase") != "notion-review-in-flight" or call.get("outcome") != "success"
                 or not self.evidence_valid(state, command)):
             raise ValueError("Notion review did not complete with matching evidence")
+        task = state["task"]
+        if not re.fullmatch(r"T\d+[a-z]?", task):
+            return
+        path = self.safe_path(f"tasks/{task}.md", extensions=False)
+        if not path.is_file():
+            return
+        gates = [m[2].strip() for line in path.read_text(encoding="utf-8").splitlines()
+                 if (m := GATE.match(line)) and m[1] == " "]
+        if ("boardQueueBefore" in state and gates and all(HUMAN.match(gate) for gate in gates)
+                and state["evidence"]["codeHash"] == hashlib.sha256(b"\n").hexdigest()):
+            note = self.review_queue_note(task, state.get("boardQueueBefore", []))
+            if note and "NEEDS OWNER" not in note:
+                self.publish_review(state, path, note, call["id"])
+                self.save(state)
 
     @synchronized
     def board_reconcile(self, task):
@@ -712,12 +727,31 @@ class Runtime:
             raise ValueError("Commit the tested project files before queuing human review.")
         path.write_text("\n".join(now) + "\n", encoding="utf-8")
         if human_open and not auto_open:
-            self.publish_review(state, path, [g[2].strip() for g in gates if g[1] == " "])
+            previous = (state["reviewBackup"].get("notes", {}).get("PLAYTEST_QUEUE.md") or "").splitlines()
+            note = self.review_queue_note(path.stem, previous)
+            checks = "\n".join(g[2].strip() for g in gates if g[1] == " ")
+            self.publish_review(state, path, note or checks, state["independentReview"])
         kind = "task_updated" if auto_open else "needs_review" if human_open else "task_done"
         self.event(state, kind, "Automatic review checked; human approval remains separate")
         self.save(state)
 
-    def publish_review(self, state, path, checks):
+    def review_queue_lines(self):
+        queue = self.root / "PLAYTEST_QUEUE.md"
+        return queue.read_text(encoding="utf-8").splitlines() if queue.is_file() else []
+
+    def review_queue_note(self, task, previous):
+        old = Counter(previous)
+        note = ""
+        for line in self.review_queue_lines():
+            if old[line]:
+                old[line] -= 1
+                continue
+            match = re.fullmatch(rf"{re.escape(task)}\s+[—-]\s+.*?\s+[—-]\s+(.*)", line)
+            if match:
+                note = match[1].strip()
+        return note
+
+    def publish_review(self, state, path, note, review_call):
         task = path.stem
         evidence = state["evidence"]
         revisions = state.setdefault("reviews", {}).setdefault(task, [])
@@ -727,25 +761,14 @@ class Runtime:
         for review in revisions:
             if review["status"] == "pending":
                 review["status"] = "superseded"
-        queue = self.root / "PLAYTEST_QUEUE.md"
-        old = Counter((state["reviewBackup"].get("notes", {}).get(queue.name) or "").splitlines())
-        note = ""
-        if queue.is_file():
-            for line in queue.read_text(encoding="utf-8").splitlines():
-                if old[line]:
-                    old[line] -= 1
-                    continue
-                match = re.fullmatch(rf"{re.escape(task)}\s+[—-]\s+.*?\s+[—-]\s+(.*)", line)
-                if match:
-                    note = match[1].strip()
         review = {
             "id": uuid.uuid4().hex, "number": len(revisions) + 1, "build": evidence["head"],
             "codeHash": evidence["codeHash"], "evidence": evidence["log"], "taskHash": task_hash,
-            "status": "pending", "toTry": note or "\n".join(checks),
+            "status": "pending", "toTry": note,
         }
         revisions.append(review)
         for item in state.get("artifacts", {}).get(task, []):
-            if item.get("reviewEvidence") == evidence["log"] and item.get("reviewCall") == state["independentReview"]:
+            if item.get("reviewEvidence") == evidence["log"] and item.get("reviewCall") == review_call:
                 item["reviewId"] = review["id"]
 
     def require_review(self, state, task, review_id):
@@ -801,7 +824,7 @@ class Runtime:
                     raise ValueError("The build changed during recording. Capture the exact review build again.")
             else:
                 evidence = state.get("evidence", {})
-                if (state.get("phase") != "reviewing" or state.get("task") != task or evidence.get("head") != head
+                if (state.get("phase") not in ("reviewing", "notion-review-in-flight") or state.get("task") != task or evidence.get("head") != head
                         or evidence.get("codeHash") != self.code_fingerprint()):
                     raise ValueError("Attach footage during review of the matching tested build.")
                 if not any(call["id"] == state.get("activeCall") and call["role"] == "reviewer"

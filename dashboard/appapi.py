@@ -46,7 +46,7 @@ def _copilot_found():
     for c in cands:
         try:
             rc, out = osops.run(c, ["--version"], 15)
-            if "copilot" in out.lower() and "not found" not in out.lower(): return c
+            if rc == 0 and "copilot" in out.lower() and "not found" not in out.lower(): return c
         except Exception:
             continue
     return None
@@ -307,7 +307,7 @@ def _local_runner(r):
     return relay_script(r) == "relay-files.sh" and not (r / "relay.sh").exists()
 
 
-ACCESS_TOOLS = {"codex": "Codex", "claude": "Claude Code"}
+ACCESS_TOOLS = {"codex": "Codex", "claude": "Claude Code", "opencode": "OpenCode", "copilot": "GitHub Copilot"}
 
 
 def supports_project_access(r):
@@ -327,6 +327,8 @@ def access_launcher(provider):
         desktop = osops.glob_first([r"C:\Program Files\WindowsApps\OpenAI.Codex_*\app\resources\codex.exe"])
         if desktop:
             return desktop
+    if provider == "copilot":
+        return _copilot_found()
     return osops.which(provider)
 
 
@@ -345,17 +347,31 @@ def project_access(relay):
     return {"supported": True, "checkedOnly": data["checkedOnly"], "tools": tools}
 
 
-def _run_access_check(provider, launcher, folder, prompt):
+def _run_access_check(provider, launcher, folder, prompt, model=""):
+    env = None
     if provider == "codex":
         args = ["exec", "--sandbox", "workspace-write", "--ephemeral", "-"]
-    else:
+    elif provider == "claude":
         (folder / "mcp.json").write_text('{"mcpServers":{}}', encoding="utf-8")
         args = ["-p", "--tools", "Read,Write", "--permission-mode", "acceptEdits",
                 "--strict-mcp-config", "--mcp-config", "mcp.json", "--no-session-persistence"]
+    elif provider == "opencode":
+        args = ["run", "--pure", "--model", model, prompt]
+        env = {**os.environ, "OPENCODE_DISABLE_PROJECT_CONFIG": "1", "OPENCODE_PERMISSION": json.dumps({
+            "*": "deny", "read": {"*input.txt": "allow"}, "edit": {"*result.txt": "allow"}
+        })}
+        prompt = ""
+    else:
+        args = ["--no-ask-user", "--no-auto-update", "--trust-folder", "--disable-builtin-mcps", "--available-tools=view,create,edit",
+                "--allow-tool=read", "--allow-tool=write", "-p", prompt]
+        env = {**os.environ, "COPILOT_ALLOW_ALL": "false", "COPILOT_ASSISTED_APPROVAL": "false"}
+        if model and model != "auto":
+            args.extend(["--model", model])
+        prompt = ""
     command = [launcher, *args]
     if IS_WIN and launcher.lower().endswith((".cmd", ".bat")):
         command = ["cmd.exe", "/d", "/c", *command]
-    with subprocess.Popen(command, cwd=folder, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+    with subprocess.Popen(command, cwd=folder, env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                           stderr=subprocess.DEVNULL, creationflags=NO_WINDOW) as child:
         try:
             child.communicate(prompt.encode("utf-8"), timeout=75)
@@ -379,6 +395,12 @@ def check_project_access(relay, provider):
         return {"ok": False, "error": "Install the AI tool first."}
     before = pathlib.Path(launcher).stat()
     runtime = runtime_for(r)
+    model = ""
+    if provider in ("copilot", "opencode"):
+        defaults = json.loads((RES / "relay.settings.example.json").read_text(encoding="utf-8"))["models"]
+        model = os.environ.get(provider.upper() + "_MODEL") or runtime.config().get("models", {}).get(provider) or defaults[provider]
+        if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9_./:-]+", model):
+            return {"ok": False, "error": "Choose a valid backup model in AIs & settings before checking access."}
     if runtime.directory.resolve() != runtime.directory:
         return {"ok": False, "error": "This project's Relay files are linked to another folder."}
     if not runtime.release_stale_lock() or relay_tree(r)[1]:
@@ -397,7 +419,7 @@ def check_project_access(relay, provider):
                 "Do not open or change other files, use connectors, or commit anything. Then stop."
             )
             try:
-                ran = _run_access_check(provider, launcher, folder, prompt)
+                ran = _run_access_check(provider, launcher, folder, prompt, model)
             except (OSError, subprocess.TimeoutExpired):
                 ran = False
             output = folder / "result.txt"
@@ -1101,14 +1123,16 @@ def _owner_save(project, items):
     p = pathlib.Path(project)
     with open(p / "OWNER-REQUESTS.json", "w", encoding="utf-8", newline="\n") as fh: json.dump(items, fh, indent=1)
     def sect(kind): return [i for i in items if i["kind"] == kind]
+    def review_label(item):
+        return " [Review %d, build %s]" % (item["revision"], item["build"]) if item.get("revision") else ""
     lines = ["# Owner requests", "",
              "Written by the Agent Relay app when the owner presses a button. The dispatcher reads this file at the start of every round (see the OWNER REQUESTS rule).", "",
              "## DO NEXT (the first line is the most wanted)"]
     lines += ["- %s (%s)" % (i["task"], i["at"]) for i in sect("next")] or ["(none)"]
     lines += ["", "## FIX (the owner's feedback on a task: it stays open until the owner approves it)"]
-    lines += ["- %s (%s): %s" % (i["task"], i["at"], i.get("note", "")) for i in sect("fix")] or ["(none)"]
+    lines += ["- %s (%s)%s: %s" % (i["task"], i["at"], review_label(i), i.get("note", "")) for i in sect("fix")] or ["(none)"]
     lines += ["", "## APPROVED (the owner reviewed these and is happy; do not rework them. The owner ticks Human signed off in the board themselves)"]
-    lines += ["- %s (%s)" % (i["task"], i["at"]) for i in sect("approved")] or ["(none)"]
+    lines += ["- %s (%s)%s" % (i["task"], i["at"], review_label(i)) for i in sect("approved")] or ["(none)"]
     with open(p / "OWNER-REQUESTS.md", "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(lines) + "\n")
 
 
@@ -1121,7 +1145,28 @@ def owner_requests(project):
     return kept
 
 
-def owner_request(project, kind, task_id, note=""):
+def decide_board_review(project, task_id, revision, kind, note=""):
+    runtime = runtime_for(project)
+    with runtime.lock():
+        state = runtime.state()
+        reviews = state.get("reviews", {}).get(task_id, [])
+        if not revision and (not reviews or (kind == "fix" and reviews[-1]["status"] != "pending")):
+            return owner_request(project, kind, task_id, note)
+        if state.get("phase") == "notion-review-in-flight" and state.get("task") == task_id:
+            return {"ok": False, "error": "Wait for the board review to finish saving."}
+        try:
+            review = runtime.require_review(state, task_id, revision)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        result = owner_request(project, kind, task_id, note, review=review)
+        if result["ok"]:
+            review.update(status="approved" if kind == "approved" else "changes requested",
+                          feedback=" ".join((note or "").split())[:400], decidedAt=time.time())
+            runtime.save(state)
+        return result
+
+
+def owner_request(project, kind, task_id, note="", *, review=None):
     if kind not in OWNER_KINDS or not re.fullmatch(r"T\d+[a-z]?", task_id or ""): return {"ok": False, "error": "bad request"}
     if not (pathlib.Path(project) / "tasks" / (task_id + ".md")).exists(): return {"ok": False, "error": "unknown task"}
     note = " ".join((note or "").split())[:400]
@@ -1132,6 +1177,8 @@ def owner_request(project, kind, task_id, note=""):
     elif kind == "next": items = [i for i in items if not (i["task"] == task_id and i["kind"] in ("next", "approved"))]
     else: items = [i for i in items if not (i["task"] == task_id and i["kind"] == "approved")]
     entry = {"id": time.strftime("%Y%m%d-%H%M%S") + "-" + task_id, "kind": kind, "task": task_id, "at": stamp, "note": note}
+    if review:
+        entry.update(revision=review["number"], build=review["build"], reviewId=review["id"])
     items = ([entry] + items) if kind == "next" else (items + [entry])
     _owner_save(project, items)
     return {"ok": True}

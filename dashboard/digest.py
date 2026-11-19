@@ -47,7 +47,7 @@ def items(project):
     runtime = appapi.runtime_for(project)
     state = runtime.state()
     artifacts = state.get("artifacts", {})
-    reviews = state.get("reviews", {}) if mode == "relay-files.sh" else {}
+    reviews = state.get("reviews", {})
     ids.extend(reviews)
     for tid in dict.fromkeys(ids):
         t = tasks.get(tid)
@@ -106,7 +106,7 @@ def page(project):
     for k in its:
         review = k["review"]
         attributes = (' data-revision="%s" data-build="%s"' % (esc(review["id"]), esc(review["build"]))) if review else ""
-        actions_allowed = bool(review) or mode == "relay.sh"
+        actions_allowed = bool(review) or (mode == "relay.sh" and not k["history"])
         if review: badge = '<span class="b warn">Needs human sign-off</span>'
         elif k["approved"]: badge = '<span class="b ok">approved by you</span>'
         elif k["fix"]: badge = '<span class="b warn">fix requested</span>'
@@ -163,7 +163,7 @@ def page(project):
             % {"id": esc(k["id"]), "title": title, "badge": badge, "attrs": attributes, "build": build, "play": play,
                "pct": k["completion"], "gd": k["gatesDone"], "g": k["gates"], "try_": try_, "summ": summ, "gates": gates,
                "commits": commits, "attachments": attachments, "recording": recording, "actions": actions, "history": history})
-    waiting = sum(bool(k["review"]) or (mode == "relay.sh" and not k["approved"]) for k in its)
+    waiting = sum(bool(k["review"]) or (mode == "relay.sh" and not k["history"] and not k["approved"]) for k in its)
     idle = "".join("<li>%s</li>" % esc(x) for x in _idle(project))
     how = ("Your buttons are written to <code>OWNER-REQUESTS.md</code> for the relay's dispatcher to read. <b>Looks good</b> records your approval; the <i>Human signed off</i> box in the board is still yours to tick. "
            "<b>Needs changes</b> is your feedback: the task stays open until you approve it.") if mode == "relay.sh" else \
