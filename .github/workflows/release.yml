@@ -55,7 +55,7 @@ jobs:
       - name: Libraries the Qt web engine needs
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1 libegl1 libxcomposite1 libxdamage1 libxrandr2 libxtst6 \
+          sudo apt-get install -y libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1 libegl1 libgbm1 libstdc++6 libxcomposite1 libxdamage1 libxrandr2 libxtst6 \
             libxkbfile1 libdbus-1-3 libfontconfig1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-shape0 libxcb-xkb1
       - name: Build the app (a folder)
         run: bash ./build-app.sh
@@ -119,7 +119,7 @@ jobs:
           **Windows (10 or 11):** download `AgentRelay-windows-x64.zip`, extract it, and double-click `AgentRelay.exe` inside. Windows SmartScreen may warn once because the file is not code-signed (More info, then Run anyway). If the app opens in your browser instead of its own window, right-click the zip, choose Properties, tick Unblock, and extract it again.
 
           **Linux (x86_64, a normal desktop):** download `AgentRelay-linux-x86_64.tar.gz`, then `tar -xzf AgentRelay-linux-x86_64.tar.gz && ./AgentRelay/AgentRelay`.
-          It needs a few common libraries; on Debian or Ubuntu: `sudo apt install libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1`.
+          It needs a few system libraries, including the graphics driver and C++ runtime. On Debian or Ubuntu: `sudo apt install libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1 libgbm1 libstdc++6`.
           The Linux build starts, answers, and runs its window code on a clean Linux machine in the release check, but its terminals, package installs and relay start have not been used by a person yet. Please report problems.
 
           The app helps you install the AI tools and sign in. Projects use git and Python 3 for the relay scripts; the first screen checks for them. `SHA256SUMS.txt` has the checksums.

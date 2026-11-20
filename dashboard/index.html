@@ -68,6 +68,8 @@ ul.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}ul.chips li{border:
 .grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
 .btnlink{display:inline-block;padding:6px 14px;border-radius:7px;border:1px solid var(--line);text-decoration:none;color:var(--ink);background:var(--card);font-size:13px}.btnlink:hover{border-color:var(--acc)}
 .chip{border-radius:99px;padding:4px 12px;font-size:13px}.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}.chip b{margin-left:4px}
+.task-pagination{justify-content:space-between;margin:8px 0 12px}
+.task-pagination select{width:auto}
 .badge{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
 .badge.todo{color:var(--acc);border-color:var(--acc)}.badge.owner{color:var(--warn);border-color:var(--warn)}.badge.done{color:var(--ok);border-color:var(--ok)}
 table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;border-top:1px solid var(--line);vertical-align:middle}table.tt tr.h td{border-top:0;color:var(--mute);font-size:12px}
@@ -165,7 +167,12 @@ function selOpts(items,cur,extraFirst){
   let html=extraFirst||"";const groups={};list.forEach(x=>{(groups[x.group||""]=groups[x.group||""]||[]).push(x)});
   Object.keys(groups).forEach(g=>{const o=groups[g].map(x=>`<option value="${esc(x.id)}" ${x.id===cur?"selected":""}>${esc(x.label)}</option>`).join("");html+=g?`<optgroup label="${esc(g)}">${o}</optgroup>`:o});return html}
 function optList(list,sel){return list.map(x=>`<option ${x===sel?"selected":""}>${x}</option>`).join("")}
-function effortsFor(prov,model){const c=(CAT||{})[prov];if(!c)return[];if(prov==="codex"){const m=c.models.find(x=>x.id===model);return (m&&m.efforts)||c.efforts}return c.efforts||[]}
+function copilotUsesDefaultEffort(prov,model){return prov==="copilot"&&(!model||model.toLowerCase()==="auto")}
+function effortsFor(prov,model){
+  const c=(CAT||{})[prov];
+  if(!c||copilotUsesDefaultEffort(prov,model))return[];
+  return c.models.find(option=>option.id===model)?.efforts||c.efforts||[];
+}
 function usableAIs(){return ((SETUP||{}).tools||[]).filter(t=>t.found&&(t.signedIn===true||t.id==="opencode"))}
 function usablePlanners(){return usableAIs().filter(t=>(WZ?.plannerProviders||[]).includes(t.id))}
 function defaultModel(p){return p==="claude"?"claude-sonnet-5-5":p==="codex"?"gpt-6.1-sol":p==="opencode"?"opencode/deepseek-v4.1-flash-free":""}
@@ -355,7 +362,7 @@ async function createWorkspace(event){
   try{
     const result=await post("/api/project/create",{name:FORM.name,root:FORM.root,idea:FORM.idea,localWorkspace:true});
     if(!result.ok){status.textContent=result.error;return}
-    WZ=await get("/api/wizard");MODE="dash";TAB="tasks";TT.touched=false;apply();
+    WZ=await get("/api/wizard");MODE="dash";TAB="tasks";TT.touched=false;TT.q="";TT.page=1;apply();
   }catch{status.textContent="Relay could not open the project. Check the folder and try again."}
   finally{button.disabled=false}
 }
@@ -426,7 +433,7 @@ function drawExistRest(){
     $("#open-local-project").onclick=async()=>{
       const result=await post("/api/project",{path:i.path});
       if(!result.ok){$("#open-local-status").textContent=result.error;return}
-      WZ=await get("/api/wizard");MODE="dash";TAB="overview";TT.touched=false;apply();
+      WZ=await get("/api/wizard");MODE="dash";TAB="overview";TT.touched=false;TT.q="";TT.page=1;apply();
     };
     return;
   }
@@ -487,7 +494,8 @@ async function drawHost(){
   $("#hostbox").querySelectorAll("[data-hinst]").forEach(b=>b.onclick=async()=>{const r=await post("/api/install-toolchain",{id:b.dataset.hinst});RelayDialog.show(r.ok?r.message:r.error,!r.ok);fastPoll();setTimeout(drawHost,15000)});
   $("#hostbox").querySelectorAll("[data-hlogin]").forEach(b=>b.onclick=async()=>{const r=await post("/api/githost/login",{id:b.dataset.hlogin});RelayDialog.show(r.ok?r.message:r.error,!r.ok);setTimeout(drawHost,20000)})}
 function fillPlannerModels(){
-  const prov=$("#f_prov").value,c=(CAT||{})[prov];if(!c){$("#f_model").innerHTML="";$("#f_effort").innerHTML="";return}
+  const prov=$("#f_prov").value,c=(CAT||{})[prov];
+  if(!c){$("#f_model").innerHTML="";$("#f_effort").innerHTML="";FORM.model=FORM.effort="";return}
   const ms=$("#f_model");ms.innerHTML=selOpts(c.models,FORM.model||defaultModel(prov),"");
   const fill=()=>{FORM.model=ms.value;const ef=effortsFor(prov,ms.value),es=$("#f_effort");if(!ef.length){es.innerHTML="<option value=''>default effort</option>";es.disabled=true;FORM.effort=""}else{es.disabled=false;es.innerHTML=selOpts(ef.map(x=>({id:x,label:x+" reasoning"})),FORM.effort||(ef.includes("high")?"high":ef[0]),"");FORM.effort=es.value}};
   ms.onchange=()=>{FORM.effort="";fill()};$("#f_effort").onchange=e=>{FORM.effort=e.target.value};fill()}
@@ -574,8 +582,12 @@ async function taskTable(sel,onchange,opts){
   const f=opts.filter;
   if(f&&f!=="all")t=t.filter(k=>{const c=catOf(k,cur);return f==="todo"?(c==="progress"||c==="new"||c==="building"):f==="progress"?(c==="progress"||c==="building"):f==="done"?(c==="done"||c==="approved"):c===f});
   if(opts.q){const q=opts.q.toLowerCase();t=t.filter(k=>(k.id+" "+k.title).toLowerCase().includes(q))}
-  const total=t.length;if(opts.limit)t=t.slice(0,opts.limit);
-  if(opts.count&&$(opts.count))$(opts.count).textContent=total+" task"+(total===1?"":"s");
+  if(opts.pageSize){
+    const total=t.length,pages=Math.max(1,Math.ceil(total/opts.pageSize));
+    const page=Math.max(1,Math.min(opts.page,pages)),start=(page-1)*opts.pageSize,end=Math.min(start+opts.pageSize,total);
+    t=t.slice(start,end);
+    opts.onPage({page,pages,total,first:total?start+1:0,last:end});
+  }
   const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done",approved:"approved by you"};
   const actions=k=>{const c=catOf(k,cur);if(!acts)return"";
     const cancel=res.mode==="board"?(k.queuedNext?` <button data-act="cancel" data-kind="next" title="Take it off the priority list">✕ next</button>`:"")+(k.fixRequested?` <button data-act="cancel" data-kind="fix" title="Withdraw your feedback">✕ fix</button>`:""):"";
@@ -588,9 +600,7 @@ async function taskTable(sel,onchange,opts){
   $(sel).innerHTML=t.length?`<div style="overflow-x:auto"><table class="tt"><tr class="h"><td>Task</td><td>Status</td>${acts?"<td></td>":""}${opts.hideAI?"":"<td>AI</td><td>Model</td><td>Reasoning</td>"}</tr>`+t.map(k=>{const c=catOf(k,cur);return`<tr data-t="${k.id}"><td style="max-width:280px"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
     <td style="white-space:nowrap"><span class="badge ${c==="building"||c==="progress"||c==="new"?"todo":c==="review"?"owner":"done"}">${lab[c]}</span>${tags(k)}<div class="row small mute" style="width:110px;margin-top:3px"><span>${k.completion}%</span><span>${k.gatesDone}/${k.gates}</span></div><div style="width:110px">${bar(k.completion,"task")}</div></td>
     ${acts?`<td style="white-space:nowrap">${actions(k)}</td>`:""}
-    ${opts.hideAI?"":`<td><select aria-label="AI for ${esc(k.id)}" data-f="p">${[...new Set(["",...u,k.rec.provider])].map(x=>`<option value="${esc(x)}" ${x===k.rec.provider?"selected":""}>${esc(x||"(follow the setting)")}</option>`).join("")}</select></td><td><select aria-label="Model for ${esc(k.id)}" data-f="m"></select></td><td><select aria-label="Reasoning for ${esc(k.id)}" data-f="e"></select></td>`}</tr>`}).join("")+"</table></div>"+
-    (opts.limit&&total>t.length?`<div style="margin-top:10px"><button id="tmore">Show more (${total-t.length} left)</button></div>`:""):'<div class="mute">No tasks here.</div>';
-  const mb=$("#tmore");if(mb&&opts.more)mb.onclick=opts.more;
+    ${opts.hideAI?"":`<td><select aria-label="AI for ${esc(k.id)}" data-f="p">${[...new Set(["",...u,k.rec.provider])].map(x=>`<option value="${esc(x)}" ${x===k.rec.provider?"selected":""}>${esc(x||"(follow the setting)")}</option>`).join("")}</select></td><td><select aria-label="Model for ${esc(k.id)}" data-f="m"></select></td><td><select aria-label="Reasoning for ${esc(k.id)}" data-f="e"></select></td>`}</tr>`}).join("")+"</table></div>":'<div class="mute">No tasks match.</div>';
   const refresh=()=>{if(opts.filter&&$("#tab-tasks")&&!$("#tab-tasks").hidden)drawTasksTab();else taskTable(sel,onchange,opts)};
   document.querySelectorAll(sel+" tr[data-t]").forEach(tr=>{const k=all.find(x=>x.id===tr.dataset.t);
     const fill=(keepM,keepE)=>{const prov=tr.querySelector("[data-f=p]").value,ms=tr.querySelector("[data-f=m]"),es=tr.querySelector("[data-f=e]"),c=(CAT||{})[prov];
@@ -599,7 +609,13 @@ async function taskTable(sel,onchange,opts){
       if(!ef.length){es.innerHTML="<option value=''>default</option>";es.disabled=true}else{es.disabled=false;es.innerHTML=selOpts(ef.map(x=>({id:x,label:x})),keepE||"",'<option value="">default</option>')}};
     if(!opts.hideAI){
       fill(k.rec.model,k.rec.effort);
-      const save=async()=>{const prov=tr.querySelector("[data-f=p]").value;await post("/api/task/recommend",{task:k.id,provider:prov,model:prov?tr.querySelector("[data-f=m]").value:"",effort:prov?tr.querySelector("[data-f=e]").value:""});if(onchange)onchange()};
+      const save=async()=>{
+        const provider=tr.querySelector("[data-f=p]").value,model=provider?tr.querySelector("[data-f=m]").value:"",effort=provider?tr.querySelector("[data-f=e]").value:"";
+        const result=await post("/api/task/recommend",{task:k.id,provider,model,effort});
+        if(!result.ok){RelayDialog.show(result.error,true);return}
+        Object.assign(k.rec,{provider,model,effort});
+        if(onchange)onchange();
+      };
       tr.querySelector("[data-f=p]").onchange=async()=>{fill("","");await save()};tr.querySelector("[data-f=m]").onchange=async()=>{fill(tr.querySelector("[data-f=m]").value,"");await save()};tr.querySelector("[data-f=e]").onchange=save;
     }
     tr.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;let r;
@@ -635,7 +651,8 @@ async function stepStart(){
 function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart][STEP]()}
 
 /* ------------------------------------------------------------ dashboard */
-let TAB="overview",TT={filter:"todo",q:"",limit:40,t:null,showAI:false,openTask:false};
+const TASK_PAGE_SIZES=[25,50,100];
+let TAB="overview",TT={filter:"todo",q:"",page:1,pageSize:TASK_PAGE_SIZES[0],showAI:false,openTask:false};
 function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>{const active=b.dataset.tab===n;b.classList.toggle("on",active);b.setAttribute("aria-current",active?"page":"false")});["overview","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
   if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();loadSettings()}}
 function dashInit(){tick();showTab(TAB)}
@@ -644,15 +661,19 @@ function renderNextTasks(s){const q=s.queue;if(!q)return;
   const own=WZ&&WZ.project&&WZ.project.script==="relay.sh"?'<div class="mute small" style="margin-top:6px">This project picks its tasks from its own board, so the real order can differ from this list (it is by task number).</div>':"";
   $("#nexttasks").innerHTML=(q.next.length?q.next.map(k=>`<div class="tool" style="padding:7px 0"><span style="min-width:46px"><b>${esc(k.id)}</b></span><span style="flex:1;min-width:160px">${esc(k.title)}${k.current?' <span class="tag" style="background:var(--acc)">building now</span>':""}</span><span class="mute small" style="min-width:130px">${esc(recText(k.rec))}</span><span style="width:64px">${bar(k.completion,"task")}</span></div>`).join(""):'<div class="mute">Nothing left to do.</div>')+
     `<div class="row small mute" style="margin-top:10px"><span>${q.doneCount} done · ${q.todoCount} to do · ${q.waitingCount} waiting for you</span><a href="#" id="seeall">See all ${q.total} tasks →</a></div>`+own;
-  const nc=$("#needcount");if(nc){nc.textContent=q.waitingCount;$("#needlabel").textContent=q.waitingCount===1?"task waiting for your review":"tasks waiting for your review";const nt=$("#needtasks");if(nt)nt.onclick=e=>{e.preventDefault();TT.filter="review";TT.touched=true;showTab("tasks")}}
-  const sa=$("#seeall");if(sa)sa.onclick=e=>{e.preventDefault();showTab("tasks")};
+  const nc=$("#needcount");if(nc){nc.textContent=q.waitingCount;$("#needlabel").textContent=q.waitingCount===1?"task waiting for your review":"tasks waiting for your review";const nt=$("#needtasks");if(nt)nt.onclick=e=>{e.preventDefault();TT.filter="review";TT.page=1;TT.touched=true;showTab("tasks")}}
+  const sa=$("#seeall");if(sa)sa.onclick=e=>{e.preventDefault();TT.filter="all";TT.q="";TT.page=1;TT.touched=true;showTab("tasks")};
   const tb=document.querySelector('[data-tab=tasks]');if(tb)tb.textContent="Tasks"+(q.waitingCount?" ("+q.waitingCount+" to review)":"")}
 const CATS=[["review","Needs your review"],["progress","In progress"],["new","Not started"],["done","Done"],["todo","To do (all)"],["all","All"]];
 function catOf(k,cur){if(k.state==="done")return"done";if(k.approved&&k.state==="owner")return"approved";if(k.state==="owner")return"review";if(k.id===cur)return"building";return k.completion>0?"progress":"new"}
-async function drawTasksTab(){
+async function drawTasksTab(revealTask){
   const res=await get("/api/tasks"),cur=(WZ&&WZ.project&&WZ.project.running)?res.current:"",counts={review:0,progress:0,new:0,done:0,building:0,approved:0};res.tasks.forEach(k=>counts[catOf(k,cur)]++);
   if(!TT.touched)TT.filter=counts.review?"review":"todo";
-  counts.done+=counts.approved||0;const chip=(v,label,n)=>`<button class="chip ${TT.filter===v?"on":""}" data-f="${v}">${label} <b>${n}</b></button>`;
+  if(revealTask){
+    const index=res.tasks.findIndex(k=>k.id===revealTask);
+    TT.page=index<0?1:Math.floor(index/TT.pageSize)+1;
+  }
+  counts.done+=counts.approved||0;const chip=(v,label,n)=>`<button class="chip ${TT.filter===v?"on":""}" data-f="${v}" aria-pressed="${TT.filter===v}">${label} <b>${n}</b></button>`;
   const addTask=res.canAdd?`<details id="new-task" class="card" ${TT.openTask||!res.tasks.length?"open":""}><summary>Add a task</summary>
     <form id="task-create" class="basic-form">
       <label class="l" for="task-title">Task name</label><input id="task-title" maxlength="100" required>
@@ -665,13 +686,36 @@ async function drawTasksTab(){
     ${pendingPlan?'<button id="tasks-plan">Plan with AI</button>':""}<a class="btnlink" href="/digest">Review work</a>
     </div>`+addTask+`<div class="card">
     <div class="row2" style="margin-bottom:10px">${chip("review","Needs your review",counts.review)}${chip("progress","In progress",counts.progress+counts.building)}${chip("new","Not started",counts.new)}${chip("done","Done",counts.done)}${chip("all","All",res.tasks.length)}</div>
-    <div class="row2" style="margin-bottom:10px"><input id="tt_q" aria-label="Search tasks" size="28" placeholder="Search tasks" value="${esc(TT.q)}"><span class="mute small" id="tt_count"></span><label class="small"><input type="checkbox" id="show-task-ai" ${TT.showAI?"checked":""}> Show AI assignments</label></div>
+    <div class="row2" style="margin-bottom:10px"><input id="tt_q" aria-label="Search tasks" size="28" placeholder="Search tasks"><label class="small"><input type="checkbox" id="show-task-ai" ${TT.showAI?"checked":""}> Show AI assignments</label></div>
     ${res.mode==="board"?'<p class="mute small">Final signoff is made on this project’s task board.</p>':""}
     <div id="tasks-status" role="status" class="small"></div>
+    <nav class="row2 task-pagination" aria-label="Task pages">
+      <span id="tt_count" class="mute small" role="status"></span>
+      <div class="row2">
+        <label class="small">Tasks per page <select id="tt_page_size">${TASK_PAGE_SIZES.map(size=>`<option value="${size}" ${size===TT.pageSize?"selected":""}>${size}</option>`).join("")}</select></label>
+        <div class="row2" id="tt_page_controls" hidden>
+          <button id="tt_prev">Previous</button><select id="tt_page" aria-label="Task page"></select><button id="tt_next">Next</button>
+        </div>
+      </div>
+    </nav>
     <div id="tasktable">loading…</div></div>`;
-  document.querySelectorAll("#tab-tasks .chip").forEach(c=>c.onclick=()=>{TT.filter=c.dataset.f;TT.touched=true;TT.limit=40;drawTasksTab()});
-  $("#tt_q").oninput=e=>{TT.q=e.target.value;TT.limit=40;clearTimeout(TT.t);TT.t=setTimeout(drawTable,250)};
+  const filters=document.querySelectorAll("#tab-tasks .chip");
+  filters.forEach(button=>button.onclick=()=>{
+    TT.filter=button.dataset.f;TT.touched=true;TT.page=1;
+    filters.forEach(filter=>{
+      const active=filter===button;
+      filter.classList.toggle("on",active);
+      filter.setAttribute("aria-pressed",active);
+    });
+    drawTable(res);
+  });
+  $("#tt_q").value=TT.q;
+  $("#tt_q").oninput=e=>{TT.q=e.target.value;TT.page=1;drawTable(res)};
   $("#show-task-ai").onchange=event=>{TT.showAI=event.target.checked;drawTable(res)};
+  $("#tt_page_size").onchange=event=>{TT.pageSize=Number(event.target.value);TT.page=1;drawTable(res)};
+  $("#tt_page").onchange=event=>{TT.page=Number(event.target.value);drawTable(res)};
+  $("#tt_prev").onclick=()=>{TT.page--;drawTable(res)};
+  $("#tt_next").onclick=()=>{TT.page++;drawTable(res)};
   if($("#tasks-plan"))$("#tasks-plan").onclick=showWorkspacePlanner;
   if($("#task-create")){
     $("#task-create").onsubmit=event=>saveLocalTask(event,res.project);
@@ -686,13 +730,27 @@ async function saveLocalTask(event,project){
   try{
     const result=await post("/api/task/add",{project,title,description,review});
     if(!result.ok){status.textContent=result.error;return}
-    TT.filter="all";TT.q="";TT.touched=true;await drawTasksTab();
+    TT.filter="all";TT.q="";TT.touched=true;await drawTasksTab(result.task);
     $("#tasks-status").textContent=result.warning||"Task saved.";
     $("#new-task").querySelector("summary").focus();
   }catch{status.textContent="Relay could not save the task. Try again."}
   finally{button.disabled=false}
 }
-function drawTable(data){taskTable("#tasktable",null,{hideAI:!TT.showAI,filter:TT.filter,q:TT.q,limit:TT.limit,count:"#tt_count",data:data&&data.tasks?data:null,more:()=>{TT.limit+=40;drawTable()}})}
+function drawTable(data){
+  return taskTable("#tasktable",null,{hideAI:!TT.showAI,filter:TT.filter,q:TT.q.trim(),page:TT.page,pageSize:TT.pageSize,data,
+    onPage:({page,pages,total,first,last})=>{
+      TT.page=page;
+      $("#tt_count").textContent=total?`Showing ${first}–${last} of ${total} ${total===1?"task":"tasks"}`:"0 tasks";
+      $("#tt_page_controls").hidden=pages<=1;
+      $("#tt_prev").disabled=page===1;
+      $("#tt_next").disabled=page===pages;
+      const select=$("#tt_page");
+      if(select.options.length!==pages){
+        select.innerHTML=Array.from({length:pages},(_,index)=>`<option value="${index+1}">Page ${index+1} of ${pages}</option>`).join("");
+      }
+      select.value=String(page);
+    }});
+}
 async function drawDashTools(){refreshProjectAccess();SETUP=await get("/api/setup");$("#dashtools").innerHTML=SETUP.tools.map(toolRow).join("");wireToolButtons($("#dashtools"));
   if(!$("#ca_name")){$("#customarea").innerHTML='<details style="margin-top:8px"><summary><b>Add another AI</b></summary><div id="customarea2"></div></details>';renderCustom("#customarea2")}}
 let accessBusy=false;
@@ -860,7 +918,7 @@ function fillRole(r,keepModel,keepEffort){
   const autoM=isBuilder?'<option value="auto">auto (follow each task)</option>':"";
   ms.innerHTML=selOpts((CAT[prov]||{models:[]}).models,keepModel,autoM);if(keepModel==="auto"&&autoM)ms.value="auto";
   const ef=effortsFor(prov,ms.value);
-  if(!ef.length){es.innerHTML=keepEffort?selOpts([{id:keepEffort,label:keepEffort}],keepEffort):"<option value=''>default</option>";es.disabled=!keepEffort;return}
+  if(!ef.length){const current=copilotUsesDefaultEffort(prov,ms.value)?"":keepEffort;es.innerHTML=current?selOpts([{id:current,label:current}],current):"<option value=''>default</option>";es.disabled=!current;return}
   const autoE=isBuilder?'<option value="auto">auto (follow each task)</option>':"";
   es.innerHTML=selOpts(ef.map(x=>({id:x,label:x})),keepEffort,autoE);if(keepEffort==="auto"&&autoE)es.value="auto"}
 async function loadSettings(){

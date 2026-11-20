@@ -181,13 +181,15 @@ def _provider_cmd(provider, found, model, folder, effort=""):
     elif provider == "codex":
         cmd = [found, "exec", "--sandbox", "workspace-write"] + (["-m", model] if model else []) + (["-c", "model_reasoning_effort=" + effort] if effort else []) + ["-"]
     elif provider == "copilot":
+        # Copilot's GPT models expose apply_patch instead of create/edit.
         cmd = [found, "--no-ask-user", "--no-auto-update", "--trust-folder", "--disable-builtin-mcps",
-               "--available-tools=view,glob,grep,create,edit", "--allow-tool=read", "--allow-tool=write",
+               "--available-tools=view,glob,grep,create,edit,apply_patch", "--allow-tool=read", "--allow-tool=write",
                "--deny-tool=shell"]
         env = {"COPILOT_ALLOW_ALL": "false", "COPILOT_ASSISTED_APPROVAL": "false"}
-        if model and model != "auto":
+        if model:
             cmd.extend(["--model", model])
-        if effort and effort != "auto":
+        # An unset model can resolve to Auto through the Copilot CLI configuration.
+        if model and model.lower() != "auto" and effort and effort != "auto":
             cmd.extend(["--reasoning-effort", effort])
     else:
         return None, env

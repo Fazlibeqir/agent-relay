@@ -362,7 +362,7 @@ def _run_access_check(provider, launcher, folder, prompt, model=""):
         })}
         prompt = ""
     else:
-        args = ["--no-ask-user", "--no-auto-update", "--trust-folder", "--disable-builtin-mcps", "--available-tools=view,create,edit",
+        args = ["--no-ask-user", "--no-auto-update", "--trust-folder", "--disable-builtin-mcps", "--available-tools=view,create,edit,apply_patch",
                 "--allow-tool=read", "--allow-tool=write", "-p", prompt]
         env = {**os.environ, "COPILOT_ALLOW_ALL": "false", "COPILOT_ASSISTED_APPROVAL": "false"}
         if model and model != "auto":

@@ -295,7 +295,7 @@ def model_catalog():
     """Models and reasoning levels each provider offers, for the settings dropdowns. Cached for 10 minutes."""
     if CATALOG["data"] and time.time() - CATALOG["at"] < 600: return CATALOG["data"]
     cat = {"claude": {"models": [{"id": m, "label": m} for m in CLAUDE_MODELS], "efforts": GENERIC_EFFORTS},
-           "copilot": {"models": [{"id": "auto", "label": "auto (Copilot picks)"}], "efforts": GENERIC_EFFORTS},
+           "copilot": {"models": [{"id": "auto", "label": "auto (Copilot picks)"}], "efforts": []},
            "codex": {"models": [], "efforts": GENERIC_EFFORTS},
            "opencode": {"models": [], "efforts": []}}
     try:

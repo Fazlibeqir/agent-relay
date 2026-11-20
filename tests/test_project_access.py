@@ -98,7 +98,7 @@ class ProjectAccessTests(unittest.TestCase):
                         self.assertIn("--pure", command)
                         self.assertEqual(json.loads(env["OPENCODE_PERMISSION"])["*"], "deny")
                     else:
-                        self.assertIn("--available-tools=view,create,edit", command)
+                        self.assertIn("--available-tools=view,create,edit,apply_patch", command)
                         self.assertIn("--disable-builtin-mcps", command)
                     (cwd / "result.txt").write_bytes((cwd / "input.txt").read_bytes())
                     return process.return_value

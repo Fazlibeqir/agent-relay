@@ -107,7 +107,8 @@ class PlainWorkspaceTests(unittest.TestCase):
 
         def fake_copilot(cmd, **options):
             self.assertIn("--deny-tool=shell", cmd)
-            self.assertIn("--available-tools=view,glob,grep,create,edit", cmd)
+            self.assertIn("--available-tools=view,glob,grep,create,edit,apply_patch", cmd)
+            self.assertIn("--allow-tool=write", cmd)
             self.assertEqual(cmd[-6:-1], ["--model", "test-model", "--reasoning-effort", "high", "-p"])
             self.assertIn("Let club members RSVP.", cmd[-1])
             self.assertEqual(options["env"]["COPILOT_ALLOW_ALL"], "false")
@@ -121,6 +122,16 @@ class PlainWorkspaceTests(unittest.TestCase):
             self.addCleanup(planner.JOBS.pop, result["job"], None)
             background.call_args.kwargs["target"]()
         self.assertEqual(planner.job_status(result["job"])["state"], "done")
+
+    def test_copilot_auto_and_implicit_model_ignore_stale_reasoning(self):
+        for model in ("auto", ""):
+            with self.subTest(model=model):
+                cmd, _ = planner._provider_cmd("copilot", "copilot", model, self.project, "medium")
+                self.assertNotIn("--reasoning-effort", cmd)
+                if model:
+                    self.assertEqual(cmd[-2:], ["--model", "auto"])
+                else:
+                    self.assertNotIn("--model", cmd)
 
 if __name__ == "__main__":
     unittest.main()
