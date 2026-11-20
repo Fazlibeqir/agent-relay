@@ -1,5 +1,5 @@
 """Agent Relay: the desktop app. Starts the local engine and shows the interface in its own native window (Windows and Linux),
-with a splash screen while it loads. If the window library is missing it falls back to opening the page in your browser.
+with a splash screen while it loads. Linux source launches use GTK and WebKitGTK.
 
   python agent_relay_app.py [--relay <folder>] [--port 8765]
   AGENT_RELAY_NO_WINDOW=1 runs the engine only (used by the build checks)
@@ -64,8 +64,12 @@ def free_port(start):
     return start
 
 
-def run_window(url, srv):
-    """Show the interface in a native window, with the splash first. Returns False when no window could be made (the caller then uses the browser)."""
+def run_window(url):
+    """Show the interface in a native window, with the splash first."""
+    if sys.platform.startswith("linux") and not hasattr(sys, "_MEIPASS"):
+        from linux_window import run
+
+        return run(url, splash_html(), osops.DIALOGS, server.Handler)
     try:
         import webview
     except Exception:
@@ -122,17 +126,43 @@ def run_window(url, srv):
         return False
 
 
-if __name__ == "__main__":
-    args = sys.argv[1:]
+def main(args):
     if "--port" not in args: args += ["--port", str(free_port(8765))]
-    srv, a = server.setup(args)
-    url = "http://%s:%d/" % (a.host, a.port)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    if not os.environ.get("AGENT_RELAY_NO_WINDOW") and run_window(url, srv):
-        os._exit(0)                                            # the window was closed: the engine stops with it (a running relay keeps running)
-    if not os.environ.get("AGENT_RELAY_NO_BROWSER") and not os.environ.get("AGENT_RELAY_NO_WINDOW"):
-        import webbrowser; webbrowser.open(url)
-    try:
-        threading.Event().wait()
-    except KeyboardInterrupt:
-        pass
+    srv, options = server.setup(args)
+    url = f"http://{options.host}:{srv.server_port}/"
+    with srv:
+        if os.environ.get("AGENT_RELAY_NO_WINDOW"):
+            try:
+                srv.serve_forever()
+            except KeyboardInterrupt:
+                pass
+            return 0
+
+        engine = threading.Thread(target=srv.serve_forever, daemon=True)
+        engine.start()
+        try:
+            if run_window(url):
+                if sys.platform.startswith("win"):
+                    os._exit(0)  # Preserve the WebView2 process shutdown path.
+                return 0
+            if sys.platform.startswith("linux"):
+                message = "Agent Relay could not open its Linux desktop window."
+                if not hasattr(sys, "_MEIPASS"):
+                    message += " On Fedora, use system Python with python3-gobject, gtk4 and webkitgtk6.0."
+                print(message, file=sys.stderr)
+                return 1
+            if not os.environ.get("AGENT_RELAY_NO_BROWSER"):
+                import webbrowser
+
+                webbrowser.open(url)
+            engine.join()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            srv.shutdown()
+            engine.join()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

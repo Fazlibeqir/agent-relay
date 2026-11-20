@@ -429,11 +429,11 @@ def wizard_state(relay):
     proj = {"path": "", "exists": False}
     if relay is not None:
         r = pathlib.Path(relay)
-        info = {}
-        try: info = json.loads((r / "relay.project.json").read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError): pass
-        if not isinstance(info, dict): info = {}
+        info = appapi.project_metadata(r)
         tasks = appapi.list_tasks(r)
+        script = appapi.relay_script(r)
+        start_error = appapi.relay_setup_error(r, script, info, len(tasks))
+        tasks_ready = appapi.formatted_tasks(r)[0] if not script else False
         remote = ""
         try:
             rc = subprocess.run(["git", "-C", str(r), "remote", "get-url", "origin"], capture_output=True, text=True, creationflags=appapi.NO_WINDOW)
@@ -441,11 +441,14 @@ def wizard_state(relay):
         except OSError: pass
         proj = {"path": str(r), "exists": True, "name": info.get("name") or r.name, "idea": info.get("idea", ""), "stack": info.get("stack", []),
                 "testCommand": info.get("testCommand", ""), "localWorkspace": info.get("localWorkspace") is True,
-                "hasProposal": (r / "PROPOSAL.md").exists(), "hasPlan": bool(tasks) and (r / "AGENTS.md").exists(),
-                "taskCount": len(tasks), "tasksReady": existing.formatted_tasks(r)[0], "hasSource": (r / existing.SOURCE_NAME).exists(), "hasRelay": bool(appapi.relay_script(r)), "script": appapi.relay_script(r), "running": appapi.relay_running(r), "remote": remote,
+                "hasProposal": (r / "PROPOSAL.md").exists(), "hasPlan": bool(tasks) and not start_error,
+                "taskCount": len(tasks), "hasSource": (r / existing.SOURCE_NAME).exists(),
+                "hasRelay": bool(script), "script": script, "running": appapi.relay_running(r), "remote": remote,
+                "canStart": not start_error, "startError": start_error,
+                "canConfigureSavedTasks": tasks_ready and (r / "AGENTS.md").is_file() and not (r / "relay.project.json").exists(),
                 "requires": [s for s in (appapi.toolchain_status(x) for x in info.get("requires", []) if isinstance(x, str)) if s],
                 "runnerUpdate": appapi.runner_update_available(r)}
-    return {"project": proj, "githost": appapi.githost_status()}
+    return {"project": proj, "githost": appapi.githost_status(), "plannerProviders": planner.PLANNER_PROVIDERS}
 
 
 ASSETS = HERE / "assets" if (HERE / "assets").exists() else HERE.parent / "assets"
@@ -561,6 +564,15 @@ class Handler(BaseHTTPRequestHandler):
                 r = existing.attach(body.get("path", ""), bool(body.get("initGit")))
                 if r.get("ok"): Handler.relay = pathlib.Path(r["path"])
                 return reply(r, 200 if r.get("ok") or r.get("needsGit") else 400)
+            if path == "/api/project/configure-saved-tasks":
+                if need_project(): return
+                project = Handler.relay
+                if body.get("project") != str(project):
+                    return reply({"ok": False, "error": "The open project changed. Try again from its dashboard."}, 409)
+                if any(job["path"] == str(project) and job["state"] == "running" for job in list(planner.JOBS.values())):
+                    return reply({"ok": False, "error": "Wait for the planning job to finish."}, 409)
+                result = existing.configure_saved_tasks(project, body.get("testCommand"))
+                return reply(result, 200 if result["ok"] else 400)
             if path == "/api/project/import":
                 if need_project(): return
                 r = existing.import_source(Handler.relay, body.get("path", ""), body.get("text", ""))

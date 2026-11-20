@@ -103,3 +103,9 @@ Relay records the tested Git commit and attachment checksum. The reviewer or per
 - [x] Carry the reviewed build and revision into the custom board's owner mailbox.
 
 All 90 Windows tests passed. The packaged Windows app verified both backup checks with mock launchers and recorded an approval for the exact build in a simulated custom-board project. The live Project X Notion runner still needs to adopt the updated helper.
+
+## Fedora desktop launcher
+
+The source launcher opens the existing Relay interface in a GTK window on Wayland. Fedora 44 loaded the dashboard and read 178 tasks from the Project X checkout. All 90 Relay regression tests passed on Fedora. A launch without a reachable Wayland display returned exit code 1, and explicit engine-only mode responded to its quit endpoint and exited successfully.
+
+The Fedora checks cover source startup and the local dashboard. Packaged Linux builds, interaction with the native pickers and screen-sharing portal, signed-in providers, and a live Notion review still need verification. The Project X checkout used for this check has no Relay runner configured.

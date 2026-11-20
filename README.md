@@ -43,12 +43,14 @@ After Start the same page is the dashboard: what is happening now with countdown
 ## Projects you already have
 
 Step 2 also takes an existing project. Pick its folder and the app shows what it found (stack, test command, branch, unsaved changes). Then:
-- **The tasks are already there** (`tasks/T*.md` in the right shape): the AI only suggests which model builds each task.
+- **The tasks are already there** (`tasks/T*.md`): open them in the dashboard. On a Git work branch, **Configure local runner** can reuse tasks with explicit `AUTO:` and `HUMAN:` gates and a supplied test command. Projects with a custom task board use their own runner.
 - **I have a task list** (a file, or pasted text, any format): the AI turns it into proper tasks, faithfully and in your order.
 - **I don't have tasks yet**: say what you want done; the AI reads the project, proposes milestones for you to approve, and writes the tasks.
 
 The relay works on its own `agent-run` branch (created for you; your `main` is never touched) and adds its scripts there. Anything a planning AI changes outside the plan files
 is put back (and anything it cannot safely put back is reported). A folder that is not a git project can be made into one on request.
+
+For proposals and plans, choose any ready Claude Code, Codex, OpenCode or GitHub Copilot tool and its available model. A task's recommendation is optional and can be edited under **Tasks** → **Show AI assignments**.
 
 ## When an AI asks for permission
 
@@ -76,13 +78,19 @@ They are built by a GitHub Actions workflow (`.github/workflows/release.yml`) th
 
 | | Windows | Linux |
 |---|---|---|
-| From source (needs Python 3) | `Run AgentRelay.cmd` | `./run-app.sh` |
+| From source | `Run AgentRelay.cmd` | `./run-app.sh` |
 | Packaged app | `build-app.ps1` makes `dist\AgentRelay\AgentRelay.exe` and a zip | `./build-app.sh` makes `dist/AgentRelay/` (run it on a Linux machine) |
 
-The app opens in its own window (the engine behind it listens on `http://127.0.0.1:8765/` on this computer only). If the window library is missing it falls back to your browser. **Quit app** closes the app only; a running relay keeps running.
+The Linux source launcher uses a GTK desktop window with an embedded WebKitGTK view and native file and folder pickers. On Fedora, install the desktop libraries if needed:
 
-**Status of platforms.** Windows is built and tested. The Linux code paths (terminals, package installs, drives, processes, starting the relay) are written to the same shape
-but have not been run on a Linux machine yet: expect small fixes on first use. macOS is not supported.
+```bash
+sudo dnf install python3-gobject gtk4 webkitgtk6.0
+bash ./run-app.sh
+```
+
+The packaged Linux release uses the bundled Qt desktop window. Linux launches require a working desktop window and report failures in the terminal. For engine-only development, set `AGENT_RELAY_NO_WINDOW=1`. The engine listens on localhost by default. **Quit app** closes the app. A running Relay worker keeps running.
+
+**Status of platforms.** Windows is built and tested. See [Implementation notes](IMPLEMENTATION.md) for the Fedora desktop checks. macOS is unsupported.
 
 ## What it never does
 

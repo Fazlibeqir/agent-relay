@@ -53,11 +53,31 @@ def detect_project(path):
     return {"stack": stack, "testCommand": test, "requires": req}
 
 
-def formatted_tasks(path):
-    """True when tasks/T*.md already exist in the planner's shape (each with at least one checkbox gate)."""
-    d = pathlib.Path(path) / "tasks"
-    files = sorted(d.glob("T*.md")) if d.is_dir() else []
-    return bool(files) and all(re.search(r"^\s*-\s*\[( |x|X)\]", f.read_text(encoding="utf-8", errors="replace"), re.M) for f in files), len(files)
+def configure_saved_tasks(project, test_command):
+    """Install a standard runner without invoking a planner or rewriting existing tasks."""
+    info = inspect(project)
+    if not info["ok"]:
+        return info
+    p = pathlib.Path(info["path"])
+    if not info["isGit"] or not info.get("hasCommits") or info.get("needsBranch"):
+        return {"ok": False, "error": "Open a Git work branch with a saved starting commit first."}
+    configuration = p / "relay.project.json"
+    if info["running"] or info["hasRelay"] or configuration.exists():
+        return {"ok": False, "error": "This project's runner or configuration already exists."}
+    if not info["tasksReady"] or not info["hasAgents"]:
+        return {"ok": False, "error": "Local setup needs AGENTS.md and explicit AUTO: and HUMAN: gates on every task. For other task boards, use the project's custom runner."}
+    if not isinstance(test_command, str) or not test_command.strip():
+        return {"ok": False, "error": "Enter the project's test command."}
+    result = appapi.install_relay(p)
+    if not result["ok"]:
+        return result
+    try:
+        with configuration.open("x", encoding="utf-8") as output:
+            json.dump({"name": p.name, "testCommand": test_command.strip(), "branch": info["branch"]}, output, indent=2)
+            output.write("\n")
+    except OSError as exc:
+        return {"ok": False, "error": f"Could not save runner configuration: {exc}"}
+    return {"ok": True}
 
 
 def inspect(path):
@@ -68,11 +88,10 @@ def inspect(path):
     is_git = (p / ".git").exists()
     info = {"ok": True, "path": str(p), "name": p.name, "isGit": is_git, "detect": detect_project(p), "hasAgents": (p / "AGENTS.md").exists(),
             "hasRelay": bool(appapi.relay_script(p)), "running": appapi.relay_running(p)}
-    ready, n = formatted_tasks(p)
+    ready, n = appapi.formatted_tasks(p)
     info["tasksReady"], info["taskFiles"] = ready, n
-    try: metadata = json.loads((p / "relay.project.json").read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError): metadata = {}
-    info["readyToOpen"] = info["hasRelay"] and (info["hasAgents"] and ready or isinstance(metadata, dict) and metadata.get("localWorkspace") is True)
+    metadata = appapi.project_metadata(p)
+    info["readyToOpen"] = bool(n or info["hasRelay"] or metadata.get("localWorkspace") is True)
     info["tasksFolderOther"] = (p / "tasks").is_dir() and not ready
     if is_git:
         b = _git(p, "rev-parse", "--abbrev-ref", "HEAD"); info["branch"] = b.stdout.strip() if b.returncode == 0 else ""

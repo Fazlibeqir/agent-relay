@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dashboard"))
 import appapi
 import existing
+import planner
 import server
 
 
@@ -54,6 +56,71 @@ class PlainWorkspaceTests(unittest.TestCase):
         (self.project / "relay.sh").write_text("# Custom board runner")
         self.assertIn("own task board", appapi.add_task(self.project, "Add RSVP", "Let players reply.")["error"])
 
+    def saved_checkout(self, task_text):
+        project = self.project.parent / "Existing project"
+        project.mkdir()
+        self.assertEqual(appapi._git(project, "init", "-q", "-b", "work/test").returncode, 0)
+        (project / "AGENTS.md").write_text("# Project rules\n", encoding="utf-8")
+        (project / "tasks").mkdir()
+        task = project / "tasks/T01.md"
+        task.write_text(task_text, encoding="utf-8")
+        self.assertEqual(appapi._commit(project, "Starting checkout", ["AGENTS.md", "tasks/T01.md"]).returncode, 0)
+        return project, task
+
+    def test_saved_board_tasks_open_without_a_false_plan_or_launch(self):
+        project, task = self.saved_checkout("# T01\nStatus: In progress (80%)\n- [x] Human signoff required\n- [ ] Human signed off\n")
+        original = task.read_bytes()
+        self.assertTrue(existing.inspect(project)["readyToOpen"])
+        with patch.object(appapi, "githost_status", return_value={}):
+            state = server.wizard_state(project)["project"]
+        self.assertEqual(state["taskCount"], 1)
+        self.assertFalse(state["hasPlan"])
+        self.assertFalse(state["canStart"])
+        self.assertFalse(state["canConfigureSavedTasks"])
+        with patch.object(appapi.osops, "start_background") as worker:
+            self.assertEqual(appapi.start_relay(project)["error"], state["startError"])
+            self.assertFalse(existing.configure_saved_tasks(project, "echo PASS")["ok"])
+            worker.assert_not_called()
+        self.assertEqual(task.read_bytes(), original)
+        self.assertFalse((project / "relay.project.json").exists())
+
+    def test_existing_relay_tasks_configure_without_regenerating_the_plan(self):
+        project, task = self.saved_checkout("# T01\n- [ ] AUTO: run tests\n- [ ] HUMAN: try the result\n")
+        original = task.read_bytes()
+        self.assertFalse(existing.configure_saved_tasks(project, " ")["ok"])
+        self.assertTrue(existing.configure_saved_tasks(project, "echo PASS")["ok"])
+        self.assertFalse(existing.configure_saved_tasks(project, "exit 1")["ok"])
+        with patch.object(appapi, "githost_status", return_value={}):
+            state = server.wizard_state(project)["project"]
+        self.assertTrue(state["hasPlan"])
+        self.assertTrue(state["canStart"])
+        self.assertEqual(state["testCommand"], "echo PASS")
+        with patch.object(appapi.osops, "start_background") as worker:
+            self.assertTrue(appapi.start_relay(project)["ok"])
+            worker.assert_called_once_with(project, "relay-files.sh")
+        (project / "relay.sh").write_text("# Existing custom runner\n", encoding="utf-8")
+        self.assertEqual(appapi.relay_script(project), "relay.sh")
+        self.assertEqual(task.read_bytes(), original)
+
+    def test_copilot_can_plan_with_selected_model_and_restricted_tools(self):
+        self.assertIn("copilot", planner.PLANNER_PROVIDERS)
+
+        def fake_copilot(cmd, **options):
+            self.assertIn("--deny-tool=shell", cmd)
+            self.assertIn("--available-tools=view,glob,grep,create,edit", cmd)
+            self.assertEqual(cmd[-6:-1], ["--model", "test-model", "--reasoning-effort", "high", "-p"])
+            self.assertIn("Let club members RSVP.", cmd[-1])
+            self.assertEqual(options["env"]["COPILOT_ALLOW_ALL"], "false")
+            (self.project / "PROPOSAL.md").write_text("# Proposal\n", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with patch.object(planner.threading, "Thread") as background, patch.object(planner.subprocess, "run", side_effect=fake_copilot):
+            result = planner.start_job("propose", self.project, "copilot", "copilot", "test-model",
+                                       idea="Let club members RSVP.", effort="high")
+            self.assertTrue(result["ok"], result)
+            self.addCleanup(planner.JOBS.pop, result["job"], None)
+            background.call_args.kwargs["target"]()
+        self.assertEqual(planner.job_status(result["job"])["state"], "done")
 
 if __name__ == "__main__":
     unittest.main()

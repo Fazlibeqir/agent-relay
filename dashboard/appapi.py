@@ -60,7 +60,7 @@ def tool_specs():
          "login": [], "loginNote": "A terminal opens: follow the sign-in steps (your browser opens). When it says you are in, type /exit."},
         {"id": "codex", "name": "Codex", "role": "Builds the tasks", "needed": False, "found": codex_found, "install": {"npm": "@openai/codex"},
          "login": ["login"], "loginNote": "A terminal opens: follow the sign-in steps in your browser."},
-        {"id": "copilot", "name": "GitHub Copilot", "role": "Backup AI", "needed": False, "found": _copilot_found(),
+        {"id": "copilot", "name": "GitHub Copilot", "role": "Planner, builder or reviewer", "needed": False, "found": _copilot_found(),
          "install": {"winget": "GitHub.CopilotApp"} if IS_WIN else {"npm": "@github/copilot"},
          "login": ["login"], "loginNote": "A terminal opens: follow the sign-in steps in your browser (use the GitHub account that has Copilot; the student pack works)."},
         {"id": "opencode", "name": "OpenCode (free models)", "role": "Backup AI", "needed": False, "found": osops.which("opencode"), "install": {"npm": "opencode-ai"},
@@ -607,8 +607,42 @@ def relay_running(relay):
 
 def relay_script(r):
     r = pathlib.Path(r)
-    if (r / "relay-files.sh").exists() and (r / "relay.project.json").exists() and (r / "tasks").is_dir(): return "relay-files.sh"
-    return "relay.sh" if (r / "relay.sh").exists() else ""
+    if (r / "relay.sh").is_file():
+        return "relay.sh"
+    if (r / "relay-files.sh").is_file() and (r / "relay.project.json").is_file() and (r / "tasks").is_dir():
+        return "relay-files.sh"
+    return ""
+
+
+def project_metadata(r):
+    try:
+        info = json.loads((r / "relay.project.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def relay_setup_error(r, script, project, task_count=None):
+    """The same setup check serves Start and the dashboard."""
+    if script == "relay.sh":
+        return ""
+    if task_count is None:
+        task_count = sum(1 for _ in (r / "tasks").glob("T*.md"))
+    if not script:
+        if task_count:
+            can_configure = (r / "AGENTS.md").is_file() and formatted_tasks(r)[0]
+            if not can_configure:
+                return "These tasks use a project-specific format. Restore this project's custom relay.sh to run them."
+            if (r / "relay.project.json").exists():
+                return "The runner configuration is saved. Restore relay-files.sh to start."
+            return "Set the test command to configure the local runner for these tasks."
+        return "Finish setting up a task list and its Relay runner before starting."
+    command = project.get("testCommand")
+    if not task_count or not (r / "AGENTS.md").is_file() or not isinstance(command, str) or not command.strip():
+        if project.get("localWorkspace"):
+            return "Use Plan with AI and approve the plan before starting work."
+        return "Finish runner setup with task files, AGENTS.md and a test command in relay.project.json."
+    return ""
 
 
 def relay_tree(relay):
@@ -657,6 +691,10 @@ def unfinished_work(r):
         st, path = line[:2], line[3:].strip().strip('"')
         if NOT_WORK.search(path): continue
         if st == " M" and path == ".gitignore" and relay_ignore_additions(r): continue
+        if st == "??" and path == ".gitignore":
+            rules = (pathlib.Path(r) / path).read_text(encoding="utf-8", errors="replace").splitlines()
+            if rules and all(not rule or rule in GITIGNORE for rule in rules):
+                continue
         rows.append((st, path))
     return rows
 
@@ -694,13 +732,12 @@ def save_work_aside(r, rows):
 def start_relay(relay, save_aside=False):
     r = pathlib.Path(relay)
     script = relay_script(r)
-    if not script: return {"ok": False, "error": "This project has no plan yet (no tasks and relay.project.json). Finish the setup steps first."}
     if (r / RUNNER_UPDATE).exists():
         return {"ok": False, "error": "Finish Update Relay before starting this project."}
-    if script == "relay-files.sh":
-        project = json.loads((r / "relay.project.json").read_text(encoding="utf-8-sig"))
-        if project.get("localWorkspace") and (not (r / "AGENTS.md").is_file() or not str(project.get("testCommand") or "").strip()):
-            return {"ok": False, "error": "Use Plan with AI and approve the plan before starting work."}
+    project = project_metadata(r)
+    error = relay_setup_error(r, script, project)
+    if error:
+        return {"ok": False, "error": error}
     if (r / "relay-runtime.py").exists(): runtime_for(r).release_stale_lock()
     if relay_running(r): return {"ok": False, "error": "A relay is already running here (the lock exists)."}
     rows = unfinished_work(r)
@@ -818,6 +855,17 @@ GATE_LINE = re.compile(r"^\s*-\s*\[( |x|X)\]\s*(.*)$")
 HUMAN_GATE = re.compile(r"^\**\s*(human|owner)\b", re.I)
 REC_LINE = re.compile(r"^\s*recommended ai:\s*(.*)$", re.I)
 EFFORT_WORD = re.compile(r"\b(none|minimal|low|medium|high|xhigh|max|ultra)\b\s+reasoning", re.I)
+
+
+def formatted_tasks(project):
+    """Recognize explicit runner gates in a saved task list."""
+    files = sorted((pathlib.Path(project) / "tasks").glob("T*.md"))
+    for task in files:
+        gates = [GATE_LINE.match(line) for line in task.read_text(encoding="utf-8", errors="replace").splitlines()]
+        labels = [re.match(r"(AUTO|HUMAN):\s*\S", gate.group(2).strip(), re.I) for gate in gates if gate]
+        if any(label is None for label in labels) or {label.group(1).upper() for label in labels} != {"AUTO", "HUMAN"}:
+            return False, len(files)
+    return bool(files), len(files)
 
 
 def parse_rec(raw):

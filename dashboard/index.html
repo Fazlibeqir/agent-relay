@@ -104,7 +104,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 
   <div id="tab-overview">
     <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">Loading project…</div><ul id="next" class="chips"></ul>
-      <div class="row2" style="margin-top:10px"><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button></div>
+      <div class="row2" style="margin-top:10px"><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button><button id="workspace-configure" hidden>Configure local runner</button></div>
     </div>
     <details class="technical-details"><summary>Technical details</summary>
       <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
@@ -167,6 +167,7 @@ function selOpts(items,cur,extraFirst){
 function optList(list,sel){return list.map(x=>`<option ${x===sel?"selected":""}>${x}</option>`).join("")}
 function effortsFor(prov,model){const c=(CAT||{})[prov];if(!c)return[];if(prov==="codex"){const m=c.models.find(x=>x.id===model);return (m&&m.efforts)||c.efforts}return c.efforts||[]}
 function usableAIs(){return ((SETUP||{}).tools||[]).filter(t=>t.found&&(t.signedIn===true||t.id==="opencode"))}
+function usablePlanners(){return usableAIs().filter(t=>(WZ?.plannerProviders||[]).includes(t.id))}
 function defaultModel(p){return p==="claude"?"claude-sonnet-5-5":p==="codex"?"gpt-6.1-sol":p==="opencode"?"opencode/deepseek-v4.1-flash-free":""}
 
 /* ------------------------------------------------------------ boot */
@@ -185,7 +186,7 @@ async function boot(){
     if(MODE==="setup"&&STEP===1)drawTools();
     const picker=$("#f_prov");
     if(picker&&!picker.value){
-      const tools=usableAIs();
+      const tools=usablePlanners();
       if(tools.length){
         FORM.prov=tools[0].id;
         picker.innerHTML=tools.map(tool=>`<option value="${esc(tool.id)}">${esc(tool.name)}</option>`).join("");
@@ -194,7 +195,7 @@ async function boot(){
     }
   }).catch(()=>{});
   const p=WZ.project;
-  if(p.exists&&p.hasRelay&&(p.hasPlan||p.localWorkspace)){MODE="dash"}else{MODE="setup";STEP=firstStep()}
+  if(p.exists&&(p.taskCount||p.canStart||p.localWorkspace)){MODE="dash"}else{MODE="setup";STEP=firstStep()}
   apply();hideSplash()}
 function toolsReady(){return !!SETUP&&SETUP.basics.every(b=>!b.needed||b.found)&&usableAIs().length>=2}
 function firstStep(){const p=WZ.project;if(!p.exists)return 2;if(!p.hasProposal||!p.hasPlan)return 3;return STEP<4?4:STEP}
@@ -205,10 +206,11 @@ function apply(){
   headerButtons()}
 function headerButtons(){
   const p=WZ.project, pendingPlan=p.localWorkspace&&(!p.hasPlan||!p.testCommand);
-  $("#btnstart").hidden=!(MODE==="dash"&&p.hasRelay&&!p.running&&!pendingPlan);
+  $("#btnstart").hidden=!(MODE==="dash"&&p.canStart&&!p.running);
   $("#btnstop").hidden=!(MODE==="dash"&&p.running);
   $("#workspace-add").hidden=p.script!=="relay-files.sh";
   $("#workspace-plan").hidden=!pendingPlan;
+  $("#workspace-configure").hidden=!p.canConfigureSavedTasks;
   const button=$("#update-runner"), status=$("#runner-update-status"), info=$("#runner-update-info");
   if(status.dataset.project!==p.path){status.textContent="";status.dataset.project=p.path||""}
   $("#runner-update").hidden=!p.runnerUpdate&&!status.textContent;
@@ -319,7 +321,7 @@ function stepProjectNew(){
     pathPreview();return;
   }
   const stacks=["","Website: Next.js + TypeScript","Website: Python + Flask","Website: plain HTML, CSS and JavaScript","Mobile app: React Native (Expo)","Desktop app: Electron + TypeScript","Game: Godot 4 (GDScript)","Game: Unity (C#)","Game in the browser: Phaser + TypeScript","Command-line tool: Python","Command-line tool: Node.js","Backend API: Java + Spring Boot","Backend API: Python + FastAPI","Data / automation scripts: Python"];
-  const u=usableAIs();if(!FORM.prov){const c=u.find(t=>t.id==="claude")||u.find(t=>t.id==="codex")||u[0];FORM.prov=c?c.id:""}
+  const u=usablePlanners();if(!u.some(t=>t.id===FORM.prov))FORM.prov=u[0]?.id||"";
   $("#pbody").innerHTML=`<div class="card">
    <label class="l">What do you want to build?</label>
    <textarea id="f_idea" placeholder="For example: a small website where my football club can post results and show a league table.">${esc(FORM.idea)}</textarea>
@@ -362,23 +364,21 @@ async function showWorkspacePlanner(){
   MODE="setup";STEP=3;
   $("#setup").hidden=false;$("#dash").hidden=true;$("#btnnew").hidden=true;
   renderStepper();headerButtons();
+  SETUP=await get("/api/setup").catch(()=>SETUP);
   if(project.hasProposal){
     FORM.workspacePlan=true;
-    if(!FORM.prov){
-      $("#step").textContent="Opening your proposal…";
-      SETUP=await get("/api/setup").catch(()=>SETUP);
-      FORM.prov=usableAIs().find(tool=>["claude","codex","opencode"].includes(tool.id))?.id||"";
-    }
     return drawProposal();
   }
   $("#step").innerHTML=`<form id="workspace-plan-form" class="card basic-form">
     <h3>Plan with AI</h3><p class="mute">Describe what you want to build. You’ll review the plan before any build starts.</p>
     <label class="l" for="workspace-goal">What should this project do?</label>
     <textarea id="workspace-goal" maxlength="3000" required>${esc(FORM.workspaceGoal||project.idea)}</textarea>
+    ${plannerPickerHtml()}
     <div class="row2"><button class="pri" type="submit">Write a proposal</button><button type="button" id="workspace-ai-tools">Set up AI tools</button><button type="button" id="workspace-back">Back to tasks</button></div>
     <p role="status" id="workspace-plan-status"></p></form>`;
   $("#workspace-ai-tools").onclick=()=>{FORM.workspaceGoal=$("#workspace-goal").value;go(1)};
   $("#workspace-back").onclick=backToTasks;
+  wirePlannerPicker();
   $("#workspace-plan-form").onsubmit=async event=>{
     event.preventDefault();
     FORM.workspaceGoal=$("#workspace-goal").value.trim();
@@ -387,9 +387,8 @@ async function showWorkspacePlanner(){
     button.disabled=true;status.textContent="Checking available AI tools…";
     try{
       SETUP=await get("/api/setup");
-      FORM.prov=usableAIs().find(tool=>["claude","codex","opencode"].includes(tool.id))?.id||"";
-      if(!FORM.prov){status.textContent="Set up Claude, Codex or OpenCode, then try again.";return}
-      const result=await post("/api/plan/start",{phase:"propose",idea:FORM.workspaceGoal,suggest:true,provider:FORM.prov,existing:true});
+      if(!usablePlanners().some(tool=>tool.id===FORM.prov)){status.textContent="Choose a ready planner or set up an AI tool.";return}
+      const result=await post("/api/plan/start",{phase:"propose",idea:FORM.workspaceGoal,suggest:true,provider:FORM.prov,model:FORM.model,effort:FORM.effort,existing:true});
       if(!result.ok){status.textContent=result.error;return}
       FORM.workspacePlan=true;JOB={id:result.job,phase:"propose"};watchJob();
     }catch{status.textContent="Relay could not start the proposal. Try again."}
@@ -397,9 +396,13 @@ async function showWorkspacePlanner(){
   };
 }
 function backToTasks(){FORM.workspacePlan=false;MODE="dash";TAB="tasks";apply()}
-function plannerPickerHtml(){const u=usableAIs();if(!FORM.prov){const c=u.find(t=>t.id==="claude")||u.find(t=>t.id==="codex")||u[0];FORM.prov=c?c.id:""}
+function plannerPickerHtml(){const u=usablePlanners();if(!u.some(t=>t.id===FORM.prov)){FORM.prov=u[0]?.id||"";FORM.model="";FORM.effort=""}
   return `<label class="l">Which AI reads the project and writes the tasks?</label><div class="row2"><select id="f_prov">${u.map(t=>`<option value="${t.id}" ${t.id===FORM.prov?"selected":""}>${esc(t.name)}</option>`).join("")||"<option value=''>no AI is ready: go back to step 1</option>"}</select><select id="f_model"></select><select id="f_effort"></select>
     <span class="mute small">It reads your files and writes plan documents only. Anything it changes outside those is put back.</span></div>`}
+function wirePlannerPicker(){
+  $("#f_prov").onchange=e=>{FORM.prov=e.target.value;FORM.model="";FORM.effort="";fillPlannerModels()};
+  fillPlannerModels();
+}
 async function stepExisting(){
   const i=FORM.existInfo;
   $("#pbody").innerHTML=`<div class="card">
@@ -414,12 +417,12 @@ async function stepExisting(){
 async function inspectFolder(){
   const r=await post("/api/project/inspect",{path:FORM.existPath});
   if(!r.ok){$("#x_info").innerHTML='<span class="bad">'+esc(r.error)+"</span>";FORM.existInfo=null;$("#x_rest").innerHTML="";return}
-  FORM.existInfo=r;FORM.existPath=r.path;$("#x_path").value=r.path;if(r.tasksReady&&FORM.taskMode==="none")FORM.taskMode="ready";drawExistRest()}
+  FORM.existInfo=r;FORM.existPath=r.path;$("#x_path").value=r.path;drawExistRest()}
 function drawExistRest(){
   const i=FORM.existInfo;if(!i)return;const d=i.detect||{};
   if(i.readyToOpen){
     $("#x_info").textContent=i.name;
-    $("#x_rest").innerHTML='<p class="mute">Relay is set up in this folder. Open it to see your tasks and reviews.</p><button class="pri" id="open-local-project">Open project</button> <span role="status" id="open-local-status"></span>';
+    $("#x_rest").innerHTML='<p class="mute">Open this folder to see its saved tasks and runner setup.</p><button class="pri" id="open-local-project">Open project</button> <span role="status" id="open-local-status"></span>';
     $("#open-local-project").onclick=async()=>{
       const result=await post("/api/project",{path:i.path});
       if(!result.ok){$("#open-local-status").textContent=result.error;return}
@@ -434,7 +437,6 @@ function drawExistRest(){
   $("#x_rest").innerHTML=`${gitBox}
     <div class="mute small" style="margin:8px 0">${i.isGit?`The relay works on its own branch called <b>agent-run</b>${i.needsBranch?" (the app creates it; your "+esc(i.branch)+" branch is not touched)":""}. It adds its scripts to your project on that branch.`:""}</div>
     <label class="l">Your tasks</label>
-    ${i.tasksReady?`<label class="opt"><input type="radio" name="tm" value="ready" ${FORM.taskMode==="ready"?"checked":""}><div><b>The tasks are already here (${i.taskFiles} files in tasks/)</b><div class="mute small">They are already in the right format. The AI only suggests which model should build each one.</div></div></label>`:""}
     <label class="opt"><input type="radio" name="tm" value="have" ${FORM.taskMode==="have"?"checked":""}><div><b>I have a task list</b><div class="mute small">A file or text with what needs doing, in your own words and format. The AI turns it into proper tasks.</div></div></label>
     <div id="x_have" ${FORM.taskMode==="have"?"":"hidden"} style="margin:0 0 8px 26px"><div class="row2"><input id="x_tfile" size="40" placeholder="Task list file (md, txt, csv, json…)" value="${esc(FORM.taskPath)}"><button id="x_tbrowse">Choose a file…</button></div>
       <div class="mute small" style="margin:4px 0">or paste it here:</div><textarea id="x_ttext" placeholder="- add a login page&#10;- fix the checkout total&#10;- ...">${esc(FORM.taskText)}</textarea></div>
@@ -460,13 +462,12 @@ async function attachAndPlan(){
   const a=await post("/api/project/attach",{path:FORM.existPath,initGit:FORM.initGit});
   if(!a.ok){msg('<span class="bad">'+esc(a.error)+"</span>");$("#go2").disabled=false;return}
   const base={provider:FORM.prov,model:FORM.model,effort:FORM.effort,existing:true};let j;
-  if(FORM.taskMode==="ready"){j=await post("/api/plan/start",{...base,phase:"recommend"})}
-  else if(FORM.taskMode==="have"){const s=await post("/api/project/import",{path:FORM.taskPath.trim(),text:FORM.taskPath.trim()?"":FORM.taskText});
+  if(FORM.taskMode==="have"){const s=await post("/api/project/import",{path:FORM.taskPath.trim(),text:FORM.taskPath.trim()?"":FORM.taskText});
     if(!s.ok){msg('<span class="bad">'+esc(s.error)+"</span>");$("#go2").disabled=false;return}
     j=await post("/api/plan/start",{...base,phase:"import",source:s.source,notes:FORM.goal})}
   else{j=await post("/api/plan/start",{...base,phase:"analyze",goal:FORM.goal})}
   if(!j.ok){msg('<span class="bad">'+esc(j.error)+"</span>");$("#go2").disabled=false;return}
-  JOB={id:j.job,phase:j.phase||(FORM.taskMode==="ready"?"recommend":FORM.taskMode==="have"?"import":"analyze")};WZ=await get("/api/wizard");go(3)}
+  JOB={id:j.job,phase:j.phase||(FORM.taskMode==="have"?"import":"analyze")};WZ=await get("/api/wizard");go(3)}
 function drawDrives(){
   $("#drives").innerHTML=ENV.drives.map(d=>{const root=projectsRoot(d),sel=FORM.root===root;
     const low=d.freeGb<5||d.usedPct>90;
@@ -511,6 +512,7 @@ async function stepPlan(){
   if(p.hasPlan){return drawPlanDone()}
   if(JOB&&(await get("/api/plan/status?job="+JOB.id)).state==="running"){return watchJob()}
   if(p.hasProposal)return drawProposal();
+  if(p.taskCount)return backToTasks();
   $("#step").innerHTML=`<div class="card"><h3>3. The plan</h3><div class="mute">There is no proposal yet for <b>${esc(p.name||"")}</b>.</div>
     <div class="nav"><button onclick="go(2)">Back to the project form</button></div></div>`}
 function watchJob(){
@@ -538,10 +540,12 @@ async function drawProposal(){
     <pre class="doc">${esc(d.proposal)}</pre>
     <label class="l">Anything to change? <span class="mute small" style="font-weight:400">(optional, in your own words)</span></label>
     <textarea id="notes" placeholder="For example: use a different tool, skip milestone 3, answer one of the questions."></textarea>
+    ${plannerPickerHtml()}
     <p role="status" id="proposal-status"></p><div class="nav"><button id="proposal-back">Back</button><button class="pri" id="approve">Approve and make the plan</button></div></div>`;
   $("#proposal-back").onclick=FORM.workspacePlan?backToTasks:()=>go(2);
+  wirePlannerPicker();
   $("#approve").onclick=async()=>{
-    if(FORM.workspacePlan&&!FORM.prov){$("#proposal-status").textContent="Set up an AI tool before approving this plan.";go(1);return}
+    if(!FORM.prov){$("#proposal-status").textContent="Choose a ready planner before approving this plan.";return}
     $("#approve").disabled=true;
     try{
       const result=await post("/api/plan/start",{phase:"plan",notes:$("#notes").value,provider:FORM.prov||"claude",model:FORM.model,effort:FORM.effort,existing:FORM.workspacePlan||FORM.mode==="existing"});
@@ -566,7 +570,7 @@ async function drawPlanDone(){
 async function taskTable(sel,onchange,opts){
   opts=opts||{};const res=opts.data||await get("/api/tasks"),all=res.tasks,cur=(WZ&&WZ.project&&WZ.project.running)?(res.current||""):"",acts=!!res.actions&&!!opts.filter&&!opts.plain;
   const u=usableAIs().map(x=>x.id).concat(((SETUP||{}).tools||[]).filter(x=>x.custom&&x.found).map(x=>x.id));
-  const provs=["",...new Set(u)];let t=all;
+  let t=all;
   const f=opts.filter;
   if(f&&f!=="all")t=t.filter(k=>{const c=catOf(k,cur);return f==="todo"?(c==="progress"||c==="new"||c==="building"):f==="progress"?(c==="progress"||c==="building"):f==="done"?(c==="done"||c==="approved"):c===f});
   if(opts.q){const q=opts.q.toLowerCase();t=t.filter(k=>(k.id+" "+k.title).toLowerCase().includes(q))}
@@ -584,7 +588,7 @@ async function taskTable(sel,onchange,opts){
   $(sel).innerHTML=t.length?`<div style="overflow-x:auto"><table class="tt"><tr class="h"><td>Task</td><td>Status</td>${acts?"<td></td>":""}${opts.hideAI?"":"<td>AI</td><td>Model</td><td>Reasoning</td>"}</tr>`+t.map(k=>{const c=catOf(k,cur);return`<tr data-t="${k.id}"><td style="max-width:280px"><b>${esc(k.id)}</b> <span class="small">${esc(k.title.replace(/^T\d+[a-z]?\s*[-—]\s*/,""))}</span></td>
     <td style="white-space:nowrap"><span class="badge ${c==="building"||c==="progress"||c==="new"?"todo":c==="review"?"owner":"done"}">${lab[c]}</span>${tags(k)}<div class="row small mute" style="width:110px;margin-top:3px"><span>${k.completion}%</span><span>${k.gatesDone}/${k.gates}</span></div><div style="width:110px">${bar(k.completion,"task")}</div></td>
     ${acts?`<td style="white-space:nowrap">${actions(k)}</td>`:""}
-    ${opts.hideAI?"":`<td><select aria-label="AI for ${esc(k.id)}" data-f="p">${provs.map(x=>`<option value="${esc(x)}" ${x===k.rec.provider?"selected":""}>${esc(x||"(follow the setting)")}</option>`).join("")}</select></td><td><select aria-label="Model for ${esc(k.id)}" data-f="m"></select></td><td><select aria-label="Reasoning for ${esc(k.id)}" data-f="e"></select></td>`}</tr>`}).join("")+"</table></div>"+
+    ${opts.hideAI?"":`<td><select aria-label="AI for ${esc(k.id)}" data-f="p">${[...new Set(["",...u,k.rec.provider])].map(x=>`<option value="${esc(x)}" ${x===k.rec.provider?"selected":""}>${esc(x||"(follow the setting)")}</option>`).join("")}</select></td><td><select aria-label="Model for ${esc(k.id)}" data-f="m"></select></td><td><select aria-label="Reasoning for ${esc(k.id)}" data-f="e"></select></td>`}</tr>`}).join("")+"</table></div>"+
     (opts.limit&&total>t.length?`<div style="margin-top:10px"><button id="tmore">Show more (${total-t.length} left)</button></div>`:""):'<div class="mute">No tasks here.</div>';
   const mb=$("#tmore");if(mb&&opts.more)mb.onclick=opts.more;
   const refresh=()=>{if(opts.filter&&$("#tab-tasks")&&!$("#tab-tasks").hidden)drawTasksTab();else taskTable(sel,onchange,opts)};
@@ -606,7 +610,7 @@ async function taskTable(sel,onchange,opts){
       if(!r.ok){RelayDialog.show(r.error,true);return}refresh();tick()})})}
 async function stepModels(){
   $("#step").innerHTML=`<div class="card"><h3>4. Which AI builds what</h3>
-    <div class="mute">The planner suggested an AI and a reasoning level for every task, from the AIs you have ready: simple tasks get a cheaper or free model, hard ones the strongest. You do not need to change anything. If you change one, only that task changes.</div>
+    <div class="mute">AI and model recommendations are optional. You can pick another available provider or model, or keep the project default.</div>
     <div id="ttable" style="margin-top:10px">loading…</div>
     <div class="nav"><button onclick="go(3)">Back</button><button class="pri" id="next4">Continue</button></div></div>`;
   await taskTable("#ttable");
@@ -623,7 +627,8 @@ async function stepStart(){
       <div><h2>AIs</h2>${r?`<div class="small">Reviewer: <b>${esc(r.reviewer.provider)} ${esc(r.reviewer.model||"")}</b></div><div class="small">Builders: as set for each task, otherwise <b>${esc(r.builder.provider)}</b></div>`:""}</div>
     </div>
     <div class="mute" style="margin-top:12px">When you press Start the relay runs the tests, then works through the tasks one at a time by itself. It never pushes or merges, never ticks a gate that needs your judgement, and stops by itself when everything is done or waiting for you. You can watch it here and stop it any time.</div>
-    <div class="nav"><button onclick="go(4)">Back</button><button class="go" id="gostart">Start the relay</button></div></div>`;
+    ${p.startError?`<p class="warnc">${esc(p.startError)}</p>`:""}
+    <div class="nav"><button onclick="go(4)">Back</button><button class="go" id="gostart" ${p.canStart?"":"disabled"}>Start the relay</button></div></div>`;
   $("#gostart").onclick=async()=>{const r=await startRelay();if(!r.ok){if(!r.needsDecision)RelayDialog.show(r.error,true);return}
     MODE="dash";WZ=await get("/api/wizard");apply();setTimeout(tick,3000)}}
 
@@ -771,6 +776,8 @@ function render(s){
   }else n=s.alive?"starting…":"The relay is not running. Press Start.";
   if(WZ.project.localWorkspace&&(!WZ.project.hasPlan||!WZ.project.testCommand)){
     n='<div class="big">Your task list is ready</div><div class="mute">Add work in your own words. Use Plan with AI when you’re ready to prepare the build.</div>';
+  }else if(!WZ.project.canStart&&WZ.project.taskCount){
+    n=`<div class="big">${WZ.project.taskCount} saved tasks</div><div class="mute">${esc(WZ.project.startError)}</div>`;
   }
   $("#now").innerHTML=n;
   $("#providers").innerHTML=s.providers.map(p=>{
@@ -933,6 +940,15 @@ $("#update-runner").onclick=async event=>{
 };
 $("#workspace-add").onclick=()=>{TT.openTask=true;showTab("tasks")};
 $("#workspace-plan").onclick=showWorkspacePlanner;
+$("#workspace-configure").onclick=async()=>{
+  const project=WZ.project.path;
+  const command=await RelayDialog.ask({heading:"Configure the local runner",fieldLabel:"Project test command",
+    detail:"Relay will save its runner settings in this work branch. Your task files stay as they are.",action:"Save runner setup"});
+  if(!command)return;
+  const result=await post("/api/project/configure-saved-tasks",{project,testCommand:command});
+  if(!result.ok){RelayDialog.show(result.error,true);return}
+  await tick();
+};
 $("#btnstop").onclick=async()=>{if(!await RelayDialog.ask({heading:"Stop Relay?",detail:"Your work stays in the project.",action:"Stop Relay"}))return;
   const r=await post("/api/relay/stop");RelayDialog.show(r.ok?"Relay stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")),!r.ok);setTimeout(tick,1500)};
 $("#btnnew").onclick=async()=>{if(!await RelayDialog.ask({heading:"Switch projects?",detail:"Your tasks are saved. Any active Relay worker keeps running.",action:"Switch projects"}))return;

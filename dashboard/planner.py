@@ -167,6 +167,9 @@ EXISTING_RULES = """THE PROJECT ALREADY EXISTS: if AGENTS.md is already there, k
 has task files, keep them and number any new ones after the highest number; write tasks/T00.md only if the project has NO working automatic test command (then T00 sets one up without
 changing how the application behaves). If relay.project.json or PLAN.md already exist, replace them with the new versions."""
 
+PLANNER_PROVIDERS = ("claude", "codex", "opencode", "copilot")
+
+
 def _provider_cmd(provider, found, model, folder, effort=""):
     """Command and extra environment for a planner AI that may write files but has no shell."""
     env = {}
@@ -177,6 +180,15 @@ def _provider_cmd(provider, found, model, folder, effort=""):
         env["OPENCODE_CONFIG_CONTENT"] = json.dumps({"permission": {"bash": "deny"}})
     elif provider == "codex":
         cmd = [found, "exec", "--sandbox", "workspace-write"] + (["-m", model] if model else []) + (["-c", "model_reasoning_effort=" + effort] if effort else []) + ["-"]
+    elif provider == "copilot":
+        cmd = [found, "--no-ask-user", "--no-auto-update", "--trust-folder", "--disable-builtin-mcps",
+               "--available-tools=view,glob,grep,create,edit", "--allow-tool=read", "--allow-tool=write",
+               "--deny-tool=shell"]
+        env = {"COPILOT_ALLOW_ALL": "false", "COPILOT_ASSISTED_APPROVAL": "false"}
+        if model and model != "auto":
+            cmd.extend(["--model", model])
+        if effort and effort != "auto":
+            cmd.extend(["--reasoning-effort", effort])
     else:
         return None, env
     if os.name == "nt" and found.lower().endswith((".cmd", ".bat")): cmd = ["cmd.exe", "/c"] + cmd
@@ -271,7 +283,9 @@ def start_job(phase, path, found, provider, model, idea="", stack="", suggest=Tr
         summary = {}
         try:
             e = dict(os.environ); e.update(env)
-            r = subprocess.run(cmd, input=prompt, text=True, encoding="utf-8", capture_output=True, cwd=str(p), env=e, timeout=1500, creationflags=NO_WINDOW)
+            invocation = cmd + ["-p", prompt] if provider == "copilot" else cmd
+            r = subprocess.run(invocation, input="" if provider == "copilot" else prompt, text=True, encoding="utf-8",
+                               capture_output=True, cwd=str(p), env=e, timeout=1500, creationflags=NO_WINDOW)
             out = ((r.stdout or "") + (r.stderr or ""))[-1500:]
             missing = [f for f in expect if not (p / f).exists()]
             if phase in ("plan", "import") and not list((p / "tasks").glob("T*.md")): missing.append("tasks/")
