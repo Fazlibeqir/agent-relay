@@ -43,7 +43,10 @@ pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8p
 .tag{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--ok);color:#fff;margin-left:6px}
 .nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap}
 .opt{display:flex;gap:8px;align-items:flex-start;padding:6px 0}
-.tabs{display:flex;gap:4px;margin:0 0 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dashboard-nav{display:flex;justify-content:space-between;align-items:end;gap:6px 12px;flex-wrap:wrap;margin:0 0 14px;border-bottom:1px solid var(--line)}
+.dashboard-tabs{display:flex;gap:4px;flex-wrap:wrap}
+.dashboard-actions{padding-bottom:6px}
+#runtime-notice{overflow-wrap:anywhere}#runtime-notice:not(:empty){margin:0 0 10px}
 .tab{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:8px 16px;font-weight:600;color:var(--mute)}
 .tab.on{color:var(--ink);border-bottom-color:var(--acc)}
 .by{display:flex;align-items:center;justify-content:center;gap:12px;color:#8b949e;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
@@ -69,7 +72,8 @@ ul.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}ul.chips li{border:
 .badge.todo{color:var(--acc);border-color:var(--acc)}.badge.owner{color:var(--warn);border-color:var(--warn)}.badge.done{color:var(--ok);border-color:var(--ok)}
 table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;border-top:1px solid var(--line);vertical-align:middle}table.tt tr.h td{border-top:0;color:var(--mute);font-size:12px}
 .basic-form{max-width:620px}.basic-form input,.basic-form textarea{width:100%}
-.workspace-help{margin:6px 0 12px}.technical-details{margin-top:14px}.technical-details>summary{margin-bottom:10px}
+.workspace-help{margin:6px 0 12px}.technical-details{margin-bottom:12px}
+.technical-details>summary{cursor:pointer}.technical-details[open]>summary{margin-bottom:10px}
 [hidden]{display:none!important}
 </style>
 <div id="splash"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="104" height="104"><defs><linearGradient id="s1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="s2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="s3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#s1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#s2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#s3)"/></svg><div class="n">AGENT RELAY</div><div class="s">Getting things ready…</div><div class="ld"><i></i></div><div class="by" id="splashby"></div></div>
@@ -83,7 +87,13 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 </div>
 
 <div id="dash" hidden>
-  <div class="tabs"><button class="tab on" data-tab="overview">Overview</button><button class="tab" data-tab="tasks">Tasks</button><button class="tab" data-tab="setup">AIs &amp; settings</button></div>
+  <nav class="dashboard-nav" aria-label="Project">
+    <div class="dashboard-tabs"><button class="tab on" data-tab="overview" aria-current="page">Overview</button><button class="tab" data-tab="tasks">Tasks</button><button class="tab" data-tab="setup">AIs &amp; settings</button></div>
+    <div class="row2 dashboard-actions" role="group" aria-label="Project actions">
+      <button id="btnnotify">Enable desktop notifications</button><button id="btnworktree">Create isolated workspace</button><button id="btnretry">Approve task retry</button>
+    </div>
+  </nav>
+  <div id="runtime-notice" class="mute small" role="status"></div>
   <p id="tasksource" class="mute small"></p>
   <div id="runner-update" class="card row2" style="margin-bottom:10px" hidden>
     <button id="update-runner" aria-describedby="runner-update-info">Update Relay</button>
@@ -96,6 +106,13 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
     <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">Loading project…</div><ul id="next" class="chips"></ul>
       <div class="row2" style="margin-top:10px"><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button></div>
     </div>
+    <details class="technical-details"><summary>Technical details</summary>
+      <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
+      <div class="card"><h2>Task activity and recovery</h2>
+        <div id="runtime-state" class="mute small"></div><div id="runtime-events"></div>
+        <details style="margin-top:10px"><summary>Provider calls</summary><div style="overflow-x:auto"><table class="tt" id="runtime-calls"></table></div></details>
+      </div>
+    </details>
     <div class="cols">
       <div class="card"><h2>Next in line</h2><div id="nexttasks" class="mute">loading…</div></div>
       <div class="card"><h2>Needs you</h2><div id="needsyou"><div class="needbig" id="needcount">–</div><div class="mute small" id="needlabel" style="margin:2px 0 8px">tasks waiting for your review</div>
@@ -105,15 +122,6 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
       <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
       <div class="card"><h2>Broke</h2><ul id="broke"></ul><details style="margin-top:8px"><summary class="mute small">Idle chores</summary><ul id="idle"></ul></details></div>
     </div>
-    <div class="row2"><button id="btnnotify">Enable desktop notifications</button><span id="runtime-notice" class="mute small" role="status" aria-live="polite"></span></div>
-    <details class="technical-details"><summary>Technical details</summary>
-      <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
-      <div class="card"><h2>Task activity and recovery</h2>
-        <div class="row2"><button id="btnworktree">Create isolated workspace</button><button id="btnretry">Approve task retry</button></div>
-        <div id="runtime-state" class="mute small" style="margin-top:10px"></div><div id="runtime-events"></div>
-        <details style="margin-top:10px"><summary>Provider calls</summary><div style="overflow-x:auto"><table class="tt" id="runtime-calls"></table></div></details>
-      </div>
-    </details>
   </div>
 
   <div id="tab-tasks" hidden></div>
@@ -623,7 +631,7 @@ function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart]
 
 /* ------------------------------------------------------------ dashboard */
 let TAB="overview",TT={filter:"todo",q:"",limit:40,t:null,showAI:false,openTask:false};
-function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.tab===n));["overview","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
+function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>{const active=b.dataset.tab===n;b.classList.toggle("on",active);b.setAttribute("aria-current",active?"page":"false")});["overview","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
   if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();loadSettings()}}
 function dashInit(){tick();showTab(TAB)}
 function recText(r){return r&&r.provider?(r.provider+(r.model?" "+r.model.replace(/^opencode\//,""):"")+(r.effort?" · "+r.effort:"")):"follows the setting"}
@@ -799,7 +807,7 @@ function renderRuntime(runtime,project){
   $("#runtime-state").textContent=runtime.supported?`Checkpoint: ${phaseLabel}${runtime.task?" · "+runtime.task:""}`:"This runner needs checkpoint integration before it can resume saved work.";
   $("#runtime-events").innerHTML=last.map(e=>`<p class="small ${e.kind==="blocked"?"warnc":"mute"}">${esc(new Date(e.at*1000).toLocaleTimeString())} · ${esc(e.task||"")} ${esc(e.message)}</p>`).join("");
   $("#runtime-calls").innerHTML='<thead><tr>'+['Task / role','Provider','Requested → reported model','Elapsed','Result / files'].map(text=>'<th scope="col">'+text+'</th>').join('')+'</tr></thead><tbody>'+calls.slice(-20).reverse().map(c=>`<tr><td>${esc(c.task)}<br>${esc(c.role)}</td><td>${esc(c.provider)}</td><td>${esc(c.requestedModel)} → ${esc(c.reportedModel||"not reported")}</td><td>${fmt((c.endedAt||Date.now()/1000)-c.startedAt)}</td><td>${esc(c.outcome)}${c.exitCode!=null?" ("+esc(c.exitCode)+")":""}${c.idleWarning?'<br><span class="warnc">No new output for '+fmt(c.idleSeconds)+'. May still be working.</span>':""}${(c.changedFiles||[]).length?'<details><summary>'+c.changedFiles.length+' changed files</summary>'+c.changedFiles.map(esc).join('<br>')+'</details>':""}</td></tr>`).join("")+'</tbody>';
-  if(notificationProject!==project){notificationProject=project;seenRelayEvents=new Set(events.map(e=>e.id));return}
+  if(notificationProject!==project){notificationProject=project;seenRelayEvents=new Set(events.map(e=>e.id));$("#runtime-notice").textContent="";return}
   for(const event of events){if(seenRelayEvents.has(event.id))continue;seenRelayEvents.add(event.id);
     if(!["blocked","needs_review","task_done","review_clip"].includes(event.kind))continue;
     $("#runtime-notice").textContent=event.message;
@@ -824,7 +832,7 @@ notificationButton.onclick=async()=>{
   }
   localStorage.setItem("relay-notifications",enabled?"on":"off");
   refreshNotificationLabel();
-  $("#runtime-notice").textContent=enabled?"Notifications enabled for finished, blocked and review-ready tasks.":"Desktop notifications are off. Events remain in this panel.";
+  $("#runtime-notice").textContent=enabled?"Notifications enabled for finished, blocked and review-ready tasks.":"Desktop notifications are off.";
 };
 $("#btnworktree").onclick=async()=>{
   if(!await RelayDialog.ask({heading:"Create a separate workspace?",detail:"Relay will create a branch and workspace from the last commit. Unsaved edits stay in this workspace.",action:"Create workspace"}))return;
