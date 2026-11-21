@@ -57,7 +57,8 @@ footer.by{margin:34px 0 8px;opacity:.85}#splash .by{position:absolute;bottom:26p
 .sec{margin:18px 0 8px}.aigrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
 .aic{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--c,#888);border-radius:10px;padding:10px 12px;min-width:0}
 .aih{display:flex;gap:6px;align-items:center;font-size:15px;font-weight:650}.aic .act{margin-top:3px}
-.urow{display:grid;grid-template-columns:58px 1fr 38px;gap:6px;align-items:center;font-size:12px;margin-top:3px}.urow .bar{margin:0}.urow b{text-align:right}
+.urow-unavailable{grid-template-columns:74px minmax(0,1fr) max-content!important}.urow-unavailable .bar{border:1px dashed var(--mute);background:transparent}
+.urow{display:grid;grid-template-columns:74px minmax(0,1fr) 38px;gap:6px;align-items:center;font-size:12px;margin-top:3px}.urow .bar{margin:0}.urow b{text-align:right}
 ul.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}ul.chips li{border:1px solid var(--line);border-radius:99px;padding:1px 10px;font-size:12px}
 .needbig{font-size:34px;font-weight:700;line-height:1}
 #splash{position:fixed;inset:0;z-index:50;background:radial-gradient(circle at 50% 38%,#0f1c2b 0,#0b0f14 62%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#e6edf3;transition:opacity .5s}
@@ -108,8 +109,9 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
     <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">Loading project…</div><ul id="next" class="chips"></ul>
       <div class="row2" style="margin-top:10px"><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button><button id="workspace-configure" hidden>Configure local runner</button></div>
     </div>
-    <details class="technical-details"><summary>Technical details</summary>
-      <div class="aigrid" id="providers" style="margin-bottom:14px"></div>
+    <details class="technical-details" open><summary>Technical details</summary>
+      <div class="aigrid" id="providers"></div>
+      <div class="small" style="margin:6px 0 14px"><a href="https://claude.ai/settings/usage" data-ext="https://claude.ai/settings/usage">View Claude plan usage</a></div>
       <div class="card"><h2>Task activity and recovery</h2>
         <div id="runtime-state" class="mute small"></div><div id="runtime-events"></div>
         <details style="margin-top:10px"><summary>Provider calls</summary><div style="overflow-x:auto"><table class="tt" id="runtime-calls"></table></div></details>
@@ -885,16 +887,20 @@ function render(s){
   $("#providers").innerHTML=s.providers.map(p=>{
     const l=p.live||{},run=l.running,w=(p.usage&&p.usage.windows)||[];
     const urows=w.map(x=>{const left=x.resetsAt?x.resetsAt-Date.now()/1000:null;return `<div class="urow" title="${esc(x.label)}${x.detail?" · "+esc(x.detail):""}${left>0?" · resets in "+fmt(left):""}"><span>${esc(x.label)}</span>${bar(x.usedPercent)}<b>${Math.round(x.usedPercent)}%</b></div>`}).join("");
-    const reset=w.length?(()=>{const x=w.reduce((m,y)=>(y.resetsAt&&(!m||y.resetsAt<m.resetsAt))?y:m,null);const left=x&&x.resetsAt?x.resetsAt-Date.now()/1000:0;return left>0?`<div class="mute" style="font-size:11px">${esc(x.label)} resets in ${fmt(left)}</div>`:""})():"";
+    const urowsOrNone=urows||`<div class="urow urow-unavailable mute"><span>Usage</span><div class="bar" aria-hidden="true"></div><span>${p.id==="copilot"?"Checking…":"Unavailable"}</span></div>`;
+    const nx=(p.usage&&p.usage.reset)||w.reduce((m,y)=>(y.resetsAt&&(!m||y.resetsAt<m.resetsAt))?y:m,null);
+    const reset=(()=>{if(!nx||!nx.resetsAt||nx.resetsAt<=Date.now()/1000)return "";const d=new Date(nx.resetsAt*1000);
+      const when=p.id==="claude"?"at "+d.toLocaleString([],{hour:"2-digit",minute:"2-digit",weekday:d.toDateString()===new Date().toDateString()?undefined:"short"}):"in "+fmt(nx.resetsAt-Date.now()/1000);
+      return `<div class="mute" style="font-size:11px">${esc(nx.label)} resets ${when}</div>`})();
     const lastAct=run?((l.actions||[]).slice(-1)[0]):"";
-    const lim=p.lastLimit?`<div class="warnc" style="font-size:12px">hit its limit ${p.lastLimit.ts}${p.lastLimit.retryAt>Date.now()/1000?", retry "+new Date(p.lastLimit.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</div>`:"";
+    const lim=p.lastLimit?`<div class="warnc" style="font-size:12px">Usage limit reached at ${esc(p.lastLimit.ts)}. Retry around ${new Date(p.lastLimit.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}.</div>`:"";
     const det=w.filter(x=>x.detail).map(x=>esc(x.detail)).join(" · ");
     const fb=det?`<div class="mute" style="font-size:11px" title="${esc((p.usage&&p.usage.source)||"")}">${det}</div>`:(p.fallbackBuildsToday?`<div class="mute" style="font-size:12px">${p.fallbackBuildsToday} backup call(s) today</div>`:"");
     const model=(p.model||"").replace(/^opencode\//,"");
     return `<div class="aic" style="--c:${p.color}" title="${esc(p.note||"")}"><div class="aih"><span class="dot ${run?"on":""}"></span>${esc(p.name)}</div>
       <div class="mute small">${esc(p.role)}${model?" · "+esc(model):""}</div>
       <div class="small" style="margin-top:3px">${run?esc(l.state)+" · "+fmt(Date.now()/1000-off-l.start):'<span class="mute">idle</span>'}</div>
-      ${lastAct?`<div class="act">› ${esc(lastAct)}</div>`:""}${urows}${reset}${lim}${fb}</div>`}).join("");
+      ${lastAct?`<div class="act">› ${esc(lastAct)}</div>`:""}${urowsOrNone}${reset}${lim}${fb}</div>`}).join("");
   $("#done").innerHTML=s.done.slice().reverse().map(d=>`<li><span class="ok">✓</span> ${d.ts} ${esc(d.msg)}</li>`).join("")||'<li class="mute">nothing yet</li>';
   $("#broke").innerHTML=s.broke.slice().reverse().map(d=>`<li><span class="bad">✗</span> ${d.ts} ${esc(d.msg)}</li>`).join("")||'<li class="ok">nothing broke this run</li>';
   $("#next").innerHTML=(s.next||[]).map(x=>`<li>→ ${esc(x.label)} <span class="mute">(in about ${fmt(x.inSeconds)})</span></li>`).join("")||'<li class="mute">–</li>';
