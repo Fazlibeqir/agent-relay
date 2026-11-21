@@ -14,6 +14,7 @@ HERE = pathlib.Path(__file__).parent
 import sys
 sys.path.insert(0, str(HERE))
 import appapi
+import phone
 import reviewmedia
 DEFAULTS = {"BASELINE": 600, "DISPATCH": 360, "BUILD": 900, "SUITE": 600, "REVIEW": 240}
 PAIRS = {("BASELINE", "BASELINE_OK"): "BASELINE", ("DISPATCH", "BUILD"): "DISPATCH", ("BUILD", "SUITE"): "BUILD",
@@ -535,6 +536,28 @@ def flux_logo():
     return ""
 
 
+def phone_summary(relay, providers):
+    """What the phone page shows: a trimmed copy of the dashboard state (no logs, paths or settings)."""
+    if relay is None: return {"noProject": True}
+    s = build_state(relay, providers)
+    titles = {t["id"]: t.get("title", "") for t in appapi.list_tasks(relay)}
+    mode = appapi.relay_script(relay)
+    cards = []
+    for p in s.get("providers", []):
+        live, u = p.get("live") or {}, p.get("usage") or {}
+        cards.append({"name": p.get("name"), "color": p.get("color"), "role": p.get("role"), "model": p.get("model"),
+                      "running": bool(live.get("running")), "state": live.get("state", "idle"), "lastLimit": p.get("lastLimit"),
+                      "usage": [{k: w.get(k) for k in ("label", "usedPercent", "resetsAt", "detail")} for w in u.get("windows", [])]})
+    reqs = [{k: r.get(k) for k in ("id", "type", "action", "why", "task", "files")} for r in appapi.list_requests(relay) if r.get("status") == "pending"]
+    ph = s.get("phase") or {}
+    return {"project": relay.name, "alive": s.get("alive"), "task": s.get("task"), "round": s.get("round"),
+            "phase": {k: ph.get(k) for k in ("label", "elapsed", "remaining", "estimate")} if ph else None,
+            "roundDoneIn": s.get("roundDoneIn"), "providers": cards, "requests": reqs,
+            "review": [{"id": t, "title": titles.get(t, "")} for t in s.get("ownerQueue", [])],
+            "mode": "files" if mode == "relay-files.sh" else "board" if mode == "relay.sh" else "none",
+            "done": s.get("done", [])[-5:], "broke": s.get("broke", [])[-5:], "now": time.time()}
+
+
 class Handler(BaseHTTPRequestHandler):
     relay = None; providers = []; on_quit = None
     on_notify = None
@@ -565,15 +588,25 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return "claude-sonnet-5-5"
 
-    def do_POST(self):
-        # every action here changes this computer: accepted from this computer only, never over the network
+    is_phone = False
+    device = None
+
+    def _get_gate(self):
+        return True
+
+    def _post_gate(self):
+        # every action here changes this computer: accepted from this computer only (phones use their own listener, see PhoneHandler)
         if self.client_address[0] not in ("127.0.0.1", "::1"):
-            return self._send(403, json.dumps({"error": "actions can only be used from this computer"}), "application/json")
+            self._send(403, json.dumps({"error": "actions can only be used from this computer"}), "application/json"); return False
         port = self.server.server_port
         allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
         origin = self.headers.get("Origin")
         if self.headers.get("Host", "").lower() not in allowed_hosts or (origin and origin not in {"http://" + h for h in allowed_hosts}):
-            return self._send(403, json.dumps({"error": "Open Relay on its own localhost page to change it."}), "application/json")
+            self._send(403, json.dumps({"error": "Open Relay on its own localhost page to change it."}), "application/json"); return False
+        return True
+
+    def do_POST(self):
+        if not self._post_gate(): return
         path = self.path
         if path.startswith("/api/recordings/save?"):
             from urllib.parse import parse_qs, urlsplit, unquote
@@ -600,6 +633,27 @@ class Handler(BaseHTTPRequestHandler):
             if Handler.relay is None: reply({"ok": False, "error": "Choose or create a project first."}, 400); return True
             return False
         try:
+            if path == "/api/phone/pair":
+                if not self.is_phone: return reply({"ok": False, "error": "Pair from the phone."}, 404)
+                r = phone.redeem(body.get("code", ""), body.get("name", ""), self.client_address[0])
+                return reply(r, 200 if r["ok"] else 403)
+            if path == "/api/phone/enable": return reply(phone.set_enabled(bool(body.get("enabled")), PhoneHandler))
+            if path == "/api/phone/pair/start":
+                r = phone.start_pairing(body.get("scope", "control"))
+                if r["ok"]:
+                    r["url"] = phone.pair_url(r["code"])
+                    r["qr"] = phone.qr_svg(r["url"]) if r["url"] else ""
+                return reply(r, 200 if r["ok"] else 400)
+            if path == "/api/phone/pair/cancel": return reply(phone.cancel_pairing())
+            if path == "/api/phone/revoke": return reply(phone.revoke(str(body.get("id", ""))))
+            if path == "/api/phone/tailscale":
+                act = body.get("action")
+                if act == "install": return reply(phone.tailscale_install())
+                if act == "signin": return reply(phone.tailscale_signin())
+                if act in ("on", "off"):
+                    r = phone.tailscale_serve(act == "on")
+                    return reply(r, 200 if r.get("ok") or r.get("needsEnable") else 400)
+                return reply({"ok": False, "error": "unknown action"}, 400)
             if path == "/api/quit":
                 reply({"ok": True}); threading.Thread(target=(Handler.on_quit or Handler.srv.shutdown), daemon=True).start(); return
             if path == "/api/notifications/show":
@@ -625,7 +679,8 @@ class Handler(BaseHTTPRequestHandler):
                 return reply({"ok": True})
             if path == "/api/open-external":
                 url = str(body.get("url", ""))
-                if url.rstrip("/") not in EXTERNAL_OK: return reply({"ok": False, "error": "not allowed"}, 400)
+                if url.rstrip("/") not in EXTERNAL_OK and not re.fullmatch(r"https://login\.tailscale\.com/[A-Za-z0-9/?&=._%-]+", url):
+                    return reply({"ok": False, "error": "not allowed"}, 400)
                 import webbrowser; webbrowser.open(url); return reply({"ok": True})
             if path == "/api/pick-folder": return reply(appapi.pick_folder(body.get("title", "Choose a folder")))
             if path == "/api/pick-file": return reply(osops.pick_file(body.get("title", "Choose your task list")))
@@ -786,9 +841,19 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
     def do_GET(self):
+        if not self._get_gate(): return
         p = self.path
         def reply(obj, code=200): self._send(code, json.dumps(obj), "application/json")
         try:
+            if p == "/phone": return self._send(200, (HERE / "phone.html").read_bytes(), "text/html; charset=utf-8")
+            if p == "/phone.webmanifest":
+                return self._send(200, json.dumps({"name": "Agent Relay", "short_name": "Relay", "start_url": "/phone", "display": "standalone",
+                                                   "background_color": "#0b0f14", "theme_color": "#0b0f14",
+                                                   "icons": [{"src": "/assets/agent-relay-512.png", "sizes": "512x512", "type": "image/png"}]}),
+                                  "application/manifest+json")
+            if p == "/api/phone/summary": return reply(phone_summary(self.relay, self.providers + custom_cards(self.relay)))
+            if p == "/api/phone/me": return reply({"device": phone.public_device(self.device) if self.device else None, "local": not self.is_phone})
+            if p == "/api/phone/status": return reply(phone.status())
             if p == "/api/models": return reply(with_custom(model_catalog(), self.relay))
             if p == "/api/runtime": return reply(appapi.runtime_state(self.relay))
             if p == "/api/project/access":
@@ -887,6 +952,40 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, "not found", "text/plain")
 
 
+class PhoneHandler(Handler):
+    """Requests from phones on the local network: a device token on everything except the pairing page, and only the endpoints in phone.py."""
+    is_phone = True
+
+    def _deny(self, code, msg):
+        self._send(code, json.dumps({"ok": False, "error": msg}), "application/json")
+        return False
+
+    def _authed(self, need_control):
+        auth = self.headers.get("Authorization", "")
+        dev = phone.device_for(auth[7:].strip() if auth.startswith("Bearer ") else "")
+        if not dev: return self._deny(401, "This phone is not paired, or was removed. Pair it again from the computer.")
+        if need_control and dev.get("scope") != "control": return self._deny(403, "This phone can only view. Pair it again with control to act.")
+        self.device = dev
+        ip = self.client_address[0]
+        phone.touch(dev["id"], "Tailscale" if ip in ("127.0.0.1", "::1") else ip)      # serve forwards from this computer
+        return True
+
+    def _get_gate(self):
+        path = self.path.split("?", 1)[0]
+        if path in phone.PUBLIC_GET or path.startswith("/assets/"): return True
+        if path in phone.VIEW_GET: return self._authed(False)
+        return self._deny(403, "Not available from a phone.")
+
+    def _post_gate(self):
+        origin = self.headers.get("Origin")
+        if origin and origin not in ("http://" + self.headers.get("Host", ""), "https://" + self.headers.get("Host", "")):
+            return self._deny(403, "Use the Agent Relay phone page.")
+        path = self.path.split("?", 1)[0]
+        if path in phone.PUBLIC_POST: return True
+        if path in phone.CONTROL_POST: return self._authed(True)
+        return self._deny(403, "Not available from a phone.")
+
+
 def setup(argv=None):
     """Parse the options and bind the server (not serving yet). Returns (server, options)."""
     ap = argparse.ArgumentParser()
@@ -898,6 +997,7 @@ def setup(argv=None):
     Handler.relay = pathlib.Path(proj).resolve() if proj and pathlib.Path(proj).is_dir() else None
     Handler.providers = json.loads(pathlib.Path(a.providers).read_text(encoding="utf-8"))["providers"]
     srv = ThreadingHTTPServer((a.host, a.port), Handler); Handler.srv = srv
+    if phone._load()["enabled"]: phone.start_listener(PhoneHandler)
     return srv, a
 
 
