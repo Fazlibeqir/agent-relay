@@ -646,6 +646,14 @@ class Handler(BaseHTTPRequestHandler):
                 return reply(r, 200 if r["ok"] else 400)
             if path == "/api/phone/pair/cancel": return reply(phone.cancel_pairing())
             if path == "/api/phone/revoke": return reply(phone.revoke(str(body.get("id", ""))))
+            if path == "/api/phone/tailscale":
+                act = body.get("action")
+                if act == "install": return reply(phone.tailscale_install())
+                if act == "signin": return reply(phone.tailscale_signin())
+                if act in ("on", "off"):
+                    r = phone.tailscale_serve(act == "on")
+                    return reply(r, 200 if r.get("ok") or r.get("needsEnable") else 400)
+                return reply({"ok": False, "error": "unknown action"}, 400)
             if path == "/api/quit":
                 reply({"ok": True}); threading.Thread(target=(Handler.on_quit or Handler.srv.shutdown), daemon=True).start(); return
             if path == "/api/notifications/show":
@@ -671,7 +679,8 @@ class Handler(BaseHTTPRequestHandler):
                 return reply({"ok": True})
             if path == "/api/open-external":
                 url = str(body.get("url", ""))
-                if url.rstrip("/") not in EXTERNAL_OK: return reply({"ok": False, "error": "not allowed"}, 400)
+                if url.rstrip("/") not in EXTERNAL_OK and not re.fullmatch(r"https://login\.tailscale\.com/[A-Za-z0-9/?&=._%-]+", url):
+                    return reply({"ok": False, "error": "not allowed"}, 400)
                 import webbrowser; webbrowser.open(url); return reply({"ok": True})
             if path == "/api/pick-folder": return reply(appapi.pick_folder(body.get("title", "Choose a folder")))
             if path == "/api/pick-file": return reply(osops.pick_file(body.get("title", "Choose your task list")))
@@ -957,7 +966,8 @@ class PhoneHandler(Handler):
         if not dev: return self._deny(401, "This phone is not paired, or was removed. Pair it again from the computer.")
         if need_control and dev.get("scope") != "control": return self._deny(403, "This phone can only view. Pair it again with control to act.")
         self.device = dev
-        phone.touch(dev["id"], self.client_address[0])
+        ip = self.client_address[0]
+        phone.touch(dev["id"], "Tailscale" if ip in ("127.0.0.1", "::1") else ip)      # serve forwards from this computer
         return True
 
     def _get_gate(self):
@@ -968,7 +978,7 @@ class PhoneHandler(Handler):
 
     def _post_gate(self):
         origin = self.headers.get("Origin")
-        if origin and origin != "http://" + self.headers.get("Host", ""):
+        if origin and origin not in ("http://" + self.headers.get("Host", ""), "https://" + self.headers.get("Host", "")):
             return self._deny(403, "Use the Agent Relay phone page.")
         path = self.path.split("?", 1)[0]
         if path in phone.PUBLIC_POST: return True

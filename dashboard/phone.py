@@ -9,9 +9,9 @@ A phone gets its token by scanning a pairing code shown on the computer: the cod
 works once. Tokens are stored only as SHA-256 hashes in phones.json (in the app's data folder), each device can be removed, and a
 device is either "control" (can act) or "view" (can only look).
 """
-import hashlib, hmac, ipaddress, json, secrets, socket, threading, time
+import hashlib, hmac, ipaddress, json, os, re, secrets, shutil, socket, subprocess, threading, time
 
-import appapi
+import appapi, osops
 
 FILE = appapi.APPDATA / "phones.json"
 DEFAULT_PORT = 8766
@@ -174,7 +174,124 @@ def status():
     port = _listener["port"] or data["port"]
     running = _listener["server"] is not None
     return {"enabled": data["enabled"], "running": running, "port": port, "error": _listener["error"],
-            "addresses": lan_addresses() if running else [], "devices": devices(), "pairing": pairing_state()}
+            "addresses": lan_addresses() if running else [], "devices": devices(), "pairing": pairing_state(),
+            "tailscale": tailscale_state(port) if running else None}
+
+
+# ---------------------------------------------------------------- away from home: Tailscale
+# `tailscale serve` publishes the phone listener (never the computer-only port) at https://<this-pc>.<tailnet>.ts.net, reachable only by
+# devices signed in to the same Tailscale account. Funnel (the public internet) is never turned on by the app.
+_TS_CACHE = {"at": 0, "port": None, "value": None}
+
+
+def tailscale_bin():
+    found = shutil.which("tailscale")
+    if found: return found
+    for p in (r"C:\Program Files\Tailscale\tailscale.exe", "/usr/bin/tailscale", "/usr/local/bin/tailscale", "/usr/sbin/tailscale"):
+        if os.path.isfile(p): return p
+    return ""
+
+
+def _ts(args, timeout=10):
+    """(exit code, output) of a tailscale command; output is whatever it printed even when it had to be stopped."""
+    exe = tailscale_bin()
+    if not exe: return 127, ""
+    try:
+        p = subprocess.Popen([exe] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             text=True, encoding="utf-8", errors="replace", creationflags=osops.NO_WINDOW)
+    except OSError as e:
+        return 126, str(e)
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return p.returncode, out or ""
+    except subprocess.TimeoutExpired:
+        # A command that waits (for example for HTTPS to be allowed) is stopped with everything it started, then its output is read.
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True, creationflags=osops.NO_WINDOW)
+        else:
+            p.kill()
+        try: out, _ = p.communicate(timeout=5)
+        except subprocess.TimeoutExpired: out = ""
+        return 124, out or ""
+
+
+def _serve_config():
+    rc, out = _ts(["serve", "status", "--json"])
+    try: cfg = json.loads(out) if rc == 0 and out.strip().startswith("{") else {}
+    except ValueError: cfg = {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def tailscale_state(port, fresh=False):
+    now = time.time()
+    if not fresh and _TS_CACHE["value"] is not None and _TS_CACHE["port"] == port and now - _TS_CACHE["at"] < 8: return _TS_CACHE["value"]
+    st = {"installed": bool(tailscale_bin()), "signedIn": False, "dnsName": "", "url": "", "serving": False, "servingOther": False,
+          "funnel": False, "httpsCerts": False, "install": osops.install_line(TS_INSTALL)}
+    if st["installed"]:
+        rc, out = _ts(["status", "--json"])
+        try: s = json.loads(out) if out.strip().startswith("{") else {}
+        except ValueError: s = {}
+        me = s.get("Self") or {}
+        st["backend"] = s.get("BackendState", "")
+        st["signedIn"] = st["backend"] == "Running"
+        st["dnsName"] = str(me.get("DNSName") or "").rstrip(".")
+        st["httpsCerts"] = bool(s.get("CertDomains"))
+        if st["signedIn"] and st["dnsName"]:
+            cfg = _serve_config()
+            mine = "http://127.0.0.1:%s" % port
+            for host, web in (cfg.get("Web") or {}).items():
+                for h in ((web or {}).get("Handlers") or {}).values():
+                    if (h or {}).get("Proxy", "").rstrip("/") in (mine, "http://localhost:%s" % port): st["serving"] = True
+                    else: st["servingOther"] = True
+            st["funnel"] = any((cfg.get("AllowFunnel") or {}).values())
+            if st["serving"]: st["url"] = "https://%s/" % st["dnsName"]
+    _TS_CACHE.update(at=now, port=port, value=st)
+    return st
+
+
+TS_INSTALL = {"winget": "Tailscale.Tailscale", "script": "curl -fsSL https://tailscale.com/install.sh | sh"}
+
+
+def tailscale_install():
+    line = osops.install_line(TS_INSTALL)
+    if not line: return {"ok": False, "error": "Install Tailscale from tailscale.com/download, then come back here."}
+    ok, msg = osops.open_terminal("Install - Tailscale", line)
+    _TS_CACHE["value"] = None
+    return {"ok": ok, "message": "A terminal window opened and is installing Tailscale. Then sign in." if ok else msg}
+
+
+def tailscale_signin():
+    exe = tailscale_bin()
+    if not exe: return {"ok": False, "error": "Install Tailscale first."}
+    line = osops.quote(exe) + " up" if os.name == "nt" else "sudo " + osops.quote(exe) + " up --operator=$USER"
+    ok, msg = osops.open_terminal_keep_shell("Sign in - Tailscale", line)
+    _TS_CACHE["value"] = None
+    return {"ok": ok, "message": "Follow the sign-in steps in the window (a browser page opens). Use the same account on your phone." if ok else msg}
+
+
+def tailscale_serve(on):
+    """Publish the phone listener on this computer's private Tailscale address, or stop publishing it."""
+    port = _listener["port"] or _load()["port"]
+    st = tailscale_state(port, fresh=True)
+    if not st["installed"]: return {"ok": False, "error": "Install Tailscale first."}
+    if not on:
+        if st["serving"]: _ts(["serve", "--https=443", "off"], timeout=20)
+        _TS_CACHE["value"] = None
+        return {"ok": True}
+    if _listener["server"] is None: return {"ok": False, "error": "Turn on phone access first."}
+    if not st["signedIn"]: return {"ok": False, "error": "Sign in to Tailscale first."}
+    if st["servingOther"]: return {"ok": False, "error": "Tailscale on this computer already publishes something else (tailscale serve). The app does not change it."}
+    if st["serving"]: return {"ok": True, "url": st["url"]}
+    rc, out = _ts(["serve", "--bg", "http://127.0.0.1:%s" % port], timeout=25)
+    _TS_CACHE["value"] = None
+    st = tailscale_state(port, fresh=True)
+    if st["serving"]: return {"ok": True, "url": st["url"]}
+    link = re.search(r"https://login\.tailscale\.com/\S+", out or "")
+    if link:
+        _ts(["serve", "--https=443", "off"], timeout=10)       # the waiting command was stopped; leave nothing half set up
+        return {"ok": False, "needsEnable": link.group(0).rstrip(".,"),
+                "error": "Your Tailscale account must allow HTTPS for this. Open the link, press Enable, then press Use from anywhere again."}
+    return {"ok": False, "error": "Tailscale did not start serving: " + " ".join((out or "no answer").split())[:300]}
 
 
 def start_listener(handler_cls):
@@ -206,6 +323,7 @@ def set_enabled(on, handler_cls):
     if on:
         err = start_listener(handler_cls)
         return {"ok": not err, "error": err, **status()}
+    tailscale_serve(False) if tailscale_bin() else None
     stop_listener(); cancel_pairing()
     _listener["error"] = ""
     return {"ok": True, **status()}
@@ -213,7 +331,10 @@ def set_enabled(on, handler_cls):
 
 def pair_url(code):
     st = status()
-    if not st["running"] or not st["addresses"]: return ""
+    if not st["running"]: return ""
+    ts = st.get("tailscale") or {}
+    if ts.get("serving") and ts.get("url"): return ts["url"] + "phone#pair=" + code       # works at home and away
+    if not st["addresses"]: return ""
     return "http://%s:%s/phone#pair=%s" % (st["addresses"][0], st["port"], code)
 
 

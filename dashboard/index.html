@@ -670,15 +670,31 @@ async function drawPhones(){const box=$("#phonebox");if(!box)return;let st;try{s
   const addr=st.addresses.length?`http://${esc(st.addresses[0])}:${st.port}/phone`:"";
   let h=intro+(st.error?`<div class="warnc small">${esc(st.error)}</div>`:"")
     +(st.running?`<div class="small">Phone access is <b>on</b>${addr?`: ${addr}`:` but this computer has no local network address right now`}.</div><div class="mute small">If Windows asks, allow Agent Relay on <b>private</b> networks. A network set to Public blocks phones.</div>`:"");
+  const ts=st.tailscale;
+  if(st.running&&ts){
+    let a=`<h2 style="margin-top:12px">Away from home</h2>`;
+    if(ts.funnel)a+=`<div class="warnc small">Tailscale Funnel is on for this computer, which makes served pages public on the internet. Turn Funnel off in Tailscale before using this.</div>`;
+    if(!ts.installed)a+=`<div class="small">To use your phone away from home, install Tailscale on this computer and on your phone, and sign in with the same account on both. It is free for personal use, and only your own devices can reach the app.</div>${ts.install?`<div style="margin-top:6px"><button data-ts="install">Install Tailscale</button></div>`:`<div class="mute small">Download it from tailscale.com/download.</div>`}`;
+    else if(!ts.signedIn)a+=`<div class="small">Tailscale is installed but not signed in.</div><div style="margin-top:6px"><button data-ts="signin">Sign in to Tailscale</button></div>`;
+    else if(ts.serving)a+=`<div class="small">On: phones signed in to your Tailscale can use <b>${esc(ts.url)}phone</b> from anywhere. New pairing codes use this address.</div><div class="mute small">On the phone, install the Tailscale app and sign in with the same account.</div><div style="margin-top:6px"><button data-ts="off">Stop using from anywhere</button></div>`;
+    else if(ts.servingOther)a+=`<div class="mute small">Tailscale on this computer already publishes something else, so the app leaves it alone.</div>`;
+    else a+=`<div class="small">Tailscale is signed in as <b>${esc(ts.dnsName)}</b>. Turn this on to reach the app from your phone anywhere, over a private HTTPS address only your devices can open.</div><div style="margin-top:6px"><button data-ts="on">Use from anywhere</button></div>`;
+    h+=a}
   if(PHONE_PAIR){const left=Math.max(0,Math.round(PHONE_PAIR.expiresAt-Date.now()/1000));
     h+=`<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 0">${PHONE_PAIR.qr?`<div style="background:#fff;padding:6px;border-radius:8px;line-height:0;width:200px">${PHONE_PAIR.qr.replace(/<svg /,'<svg style="width:188px;height:188px" ')}</div>`:""}
       <div style="min-width:200px;flex:1"><div><b>Scan this with the phone's camera.</b></div><div class="mute small">Or open ${esc((PHONE_PAIR.url||addr).split("#")[0])} on the phone and type the code <b style="letter-spacing:.08em">${esc(PHONE_PAIR.code)}</b>.</div>
       <div class="mute small">The code works once and expires in ${Math.floor(left/60)}:${String(left%60).padStart(2,"0")}. This phone will be able to ${PHONE_PAIR.scope==="control"?"watch and act":"only watch"}.</div>
       <div style="margin-top:8px"><button id="phcancel">Cancel</button></div></div></div>`}
-  else if(st.running&&addr)h+=`<div style="margin:12px 0"><select id="phscope"><option value="control">Can watch and act</option><option value="view">Can only watch</option></select> <button id="phpair">Pair a phone</button></div>`;
+  else if(st.running&&(addr||(ts&&ts.serving)))h+=`<div style="margin:12px 0"><select id="phscope"><option value="control">Can watch and act</option><option value="view">Can only watch</option></select> <button id="phpair">Pair a phone</button></div>`;
   h+=st.devices.length?`<h2 style="margin-top:10px">Paired phones</h2>`+st.devices.map(d=>`<div class="tool" style="padding:6px 0"><span style="flex:1"><b>${esc(d.name)}</b> <span class="mute small">· ${d.scope==="control"?"watch and act":"watch only"} · last seen ${ago(d.lastSeen)}${d.lastIp?" from "+esc(d.lastIp):""}</span></span><button data-phrm="${esc(d.id)}" data-phname="${esc(d.name)}">Remove</button></div>`).join(""):`<div class="mute small">No phones paired yet.</div>`;
   h+=`<div style="margin-top:10px"><button id="phoff">Turn off phone access</button></div>`;
   box.innerHTML=h;
+  box.querySelectorAll("[data-ts]").forEach(b=>b.onclick=async()=>{const action=b.dataset.ts;
+    if(action==="off"&&!await RelayDialog.ask({heading:"Stop using from anywhere?",detail:"Phones away from home stop reaching this computer. At home on the same Wi-Fi they still work.",action:"Stop"}))return;
+    b.disabled=true;const r=await post("/api/phone/tailscale",{action});b.disabled=false;
+    if(r.needsEnable){if(await RelayDialog.ask({heading:"Allow HTTPS in Tailscale",detail:r.error,action:"Open the page"}))post("/api/open-external",{url:r.needsEnable});}
+    else if(!r.ok)RelayDialog.show(r.error,true);else if(r.message)RelayDialog.show(r.message);
+    PHONE_PAIR=null;drawPhones()});
   const pb=$("#phpair");if(pb)pb.onclick=async()=>{const r=await post("/api/phone/pair/start",{scope:$("#phscope").value});if(!r.ok){RelayDialog.show(r.error,true);return}PHONE_PAIR=r;drawPhones()};
   const cb=$("#phcancel");if(cb)cb.onclick=async()=>{await post("/api/phone/pair/cancel");PHONE_PAIR=null;drawPhones()};
   $("#phoff").onclick=async()=>{if(!await RelayDialog.ask({heading:"Turn off phone access?",detail:"Phones stop reaching this computer right away. Paired phones stay paired and work again when you turn it back on.",action:"Turn off"}))return;await post("/api/phone/enable",{enabled:false});PHONE_PAIR=null;drawPhones()};
