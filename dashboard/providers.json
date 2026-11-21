@@ -3,9 +3,9 @@
     {"id": "claude",   "name": "Claude Code", "role": "Dispatcher and reviewer", "color": "#d97757", "usage": "claude-stream",
      "note": "Plan usage appears here once Claude reports it (it does so above 75%); otherwise open the Claude app to see it."},
     {"id": "codex",    "name": "Codex", "role": "Main builder", "color": "#10a37f", "usage": "codex-session-log"},
-    {"id": "copilot",  "name": "GitHub Copilot", "role": "Backup AI", "color": "#6e5ff5", "usage": null, "defaultModel": "auto",
+    {"id": "copilot",  "name": "GitHub Copilot", "role": "Backup AI", "color": "#6e5ff5", "usage": "copilot-sessions", "defaultModel": "auto",
      "note": "Can build, dispatch or review when the configured primary tool is unavailable."},
-    {"id": "opencode", "name": "OpenCode (DeepSeek free)", "role": "Backup AI", "color": "#2f81f7", "usage": null, "defaultModel": "opencode/deepseek-v4.1-flash-free",
+    {"id": "opencode", "name": "OpenCode (DeepSeek free)", "role": "Backup AI", "color": "#2f81f7", "usage": "backup-calls", "defaultModel": "opencode/deepseek-v4.1-flash-free",
      "note": "Can build, dispatch or review. Review skips models that built the current round."}
   ]
 }

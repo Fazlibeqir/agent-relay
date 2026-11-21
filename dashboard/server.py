@@ -136,7 +136,7 @@ def codex_usage():
 
 
 def claude_usage(relay):
-    """Claude reports its plan usage inside every `claude -p` call (a rate_limit_event) once it passes a warning level. Read the newest per
+    """Claude reports its plan usage inside every `claude -p` call (a rate_limit_event; older versions only above 75%). Read the newest per
     window from the relay's last Claude call and remember it between calls (the live log is overwritten by the next call)."""
     labels = {"five_hour": "5-hour", "seven_day": "weekly", "seven_day_opus": "weekly (Opus)", "seven_day_sonnet": "weekly (Sonnet)"}
     store = appapi.APPDATA / "claude-usage.json"
@@ -148,11 +148,14 @@ def claude_usage(relay):
         if not line.startswith('{"type":"rate_limit_event"'): continue
         try: info = json.loads(line).get("rate_limit_info") or {}
         except ValueError: continue
-        kind = info.get("rateLimitType")
-        if kind and info.get("utilization") is not None:
-            known[kind] = {"usedPercent": round(float(info["utilization"]) * 100), "resetsAt": info.get("resetsAt"), "label": labels.get(kind, kind),
-                           "windowMinutes": None, "seenAt": os.path.getmtime(f)}
-            changed = True
+        # Newer Claude versions put every window (5-hour and weekly) in each event; older ones only the one that passed a warning level.
+        wins = dict(info.get("unifiedWindows") or {})
+        if info.get("rateLimitType") and info.get("utilization") is not None: wins.setdefault(info["rateLimitType"], info)
+        for kind, w in wins.items():
+            if isinstance(w, dict) and w.get("utilization") is not None:
+                known[kind] = {"usedPercent": round(float(w["utilization"]) * 100), "resetsAt": w.get("resetsAt"), "label": labels.get(kind, kind),
+                               "windowMinutes": None, "seenAt": os.path.getmtime(f)}
+                changed = True
     if changed:
         try: appapi.APPDATA.mkdir(parents=True, exist_ok=True); store.write_text(json.dumps(known), encoding="utf-8")
         except OSError: pass
@@ -160,7 +163,75 @@ def claude_usage(relay):
     wins = [w for w in known.values() if (w.get("resetsAt") or 0) > now]       # a window that has already reset is no longer true
     if not wins: return None
     newest = max(w["seenAt"] for w in wins)
-    return {"windows": wins, "source": "from the last Claude call at " + time.strftime("%H:%M", time.localtime(newest)) + " (Claude only reports above 75%)", "asOf": newest}
+    return {"windows": wins, "source": "from the last Claude call at " + time.strftime("%H:%M", time.localtime(newest)), "asOf": newest}
+
+
+def next_local_midnight():
+    d = datetime.date.today() + datetime.timedelta(days=1)
+    return datetime.datetime.combine(d, datetime.time.min).timestamp()
+
+
+def read_settings(relay):
+    try: return json.loads((relay / "relay.settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError): return {}
+
+
+def backup_window(relay, calls):
+    """How many backup-AI calls the relay made today against its own daily limit (the relay stops using a backup tool at that limit)."""
+    cap = read_settings(relay).get("fallbackMaxPerDay", 10)
+    if not isinstance(cap, int) or cap <= 0: return None
+    return {"label": "today", "usedPercent": min(100, round(100 * calls / cap)), "resetsAt": next_local_midnight(), "windowMinutes": None,
+            "detail": "%d of %d backup calls today" % (calls, cap)}
+
+
+def backup_usage(relay, calls):
+    w = backup_window(relay, calls or 0)
+    return {"windows": [w], "source": "the relay's own count and daily limit (this tool has no plan limit to read)", "asOf": time.time()} if w else None
+
+
+_COPILOT_SEEN = {}      # events file -> (mtime, size, requests, when): sessions that have not changed are not read again
+
+
+def copilot_month_requests(month):
+    """Premium requests Copilot recorded in its session files on this PC during the month (YYYY-MM, UTC). A session logs its running total at a
+    checkpoint and again at shutdown, so the highest value per session is its real total. None when Copilot keeps no sessions here."""
+    base = pathlib.Path(os.environ.get("COPILOT_HOME", pathlib.Path.home() / ".copilot")) / "session-state"
+    if not base.is_dir(): return None
+    total = 0
+    for f in glob.glob(str(base / "*" / "events.jsonl")):
+        try: st = os.stat(f)
+        except OSError: continue
+        hit = _COPILOT_SEEN.get(f)
+        if not hit or hit[:2] != (st.st_mtime, st.st_size):
+            best, when = 0, ""
+            try:
+                with open(f, encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        if "totalPremiumRequests" not in line: continue
+                        try: e = json.loads(line)
+                        except ValueError: continue
+                        n = (e.get("data") or {}).get("totalPremiumRequests")
+                        if isinstance(n, (int, float)) and n >= best: best, when = n, str(e.get("timestamp") or "")
+            except OSError: continue
+            hit = (st.st_mtime, st.st_size, best, when); _COPILOT_SEEN[f] = hit
+        if hit[3].startswith(month): total += hit[2]
+    return total
+
+
+def copilot_usage(relay, calls):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    used = copilot_month_requests(now.strftime("%Y-%m"))
+    wins = []
+    if used is not None:
+        allowance = read_settings(relay).get("copilotMonthlyPremium", 300)
+        if not isinstance(allowance, (int, float)) or allowance <= 0: allowance = 300
+        nxt = datetime.datetime(now.year + (now.month == 12), now.month % 12 + 1, 1, tzinfo=datetime.timezone.utc).timestamp()
+        wins.append({"label": "month", "usedPercent": min(100, round(100 * used / allowance)), "resetsAt": nxt, "windowMinutes": None,
+                     "detail": "%g of %g premium requests this month" % (used, allowance)})
+    b = backup_window(relay, calls or 0)
+    if b: wins.append(b)
+    if not wins: return None
+    return {"windows": wins, "source": "Copilot sessions on this PC; the monthly allowance is assumed to be 300 (Copilot Pro) unless copilotMonthlyPremium is set in relay.settings.json", "asOf": time.time()}
 
 
 def fallback_counts(relay):
@@ -261,7 +332,9 @@ def build_state(relay, providers):
         if pid in active_roles:
             row["role"], row["model"] = active_roles[pid]
         row["fallbackBuildsToday"] = fb.get(pid)
-        row["usage"] = codex_usage() if p.get("usage") == "codex-session-log" else (claude_usage(relay) if p.get("usage") == "claude-stream" else None)
+        kind = p.get("usage")
+        row["usage"] = (codex_usage() if kind == "codex-session-log" else claude_usage(relay) if kind == "claude-stream"
+                        else copilot_usage(relay, fb.get(pid)) if kind == "copilot-sessions" else backup_usage(relay, fb.get(pid)) if kind == "backup-calls" else None)
         state["providers"].append(row)
     state["done"] = [{"ts": e["ts"], "msg": short(e["msg"], 150)} for e in run if kind_of(e["msg"]) == "ROUND_DONE" or e["msg"].startswith("committed for")][-8:]
     state["broke"] = [{"ts": e["ts"], "msg": short(e["msg"], 160)} for e in run if RED.search(e["msg"]) and not e["msg"].startswith("test command")][-6:]
