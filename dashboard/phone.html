@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Relay">
+<link rel="manifest" href="/phone.webmanifest">
+<link rel="icon" href="/assets/agent-relay.svg">
+<link rel="apple-touch-icon" href="/assets/agent-relay-512.png">
+<title>Agent Relay</title>
+<style>
+:root{--bg:#0b0f14;--card:#141a21;--line:#253040;--text:#e6edf3;--mute:#8b98a5;--acc:#5b8cff;--ok:#3fb950;--bad:#f85149;--warn:#d29922}
+@media (prefers-color-scheme: light){:root{--bg:#f4f6f8;--card:#ffffff;--line:#d8dee4;--text:#1f2328;--mute:#59636e;--acc:#2f6feb;--ok:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:calc(12px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+header img{width:28px;height:28px}
+header .t{font-weight:700;font-size:17px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;color:#fff;background:var(--mute)}
+.pill.on{background:var(--ok)}.pill.off{background:var(--bad)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 8px;font-weight:700}
+.big{font-size:20px;font-weight:700;margin:0 0 4px}
+.mute{color:var(--mute)}.small{font-size:13px}
+.bar{height:8px;border-radius:5px;background:var(--line);overflow:hidden;flex:1}
+.bar i{display:block;height:100%;background:var(--ok);border-radius:5px}
+.bar i.w{background:var(--warn)}.bar i.b{background:var(--bad)}
+.row{display:flex;align-items:center;gap:8px}
+.ai{border-left:4px solid var(--c,var(--line));padding-left:10px;margin:10px 0}
+.ai b{font-size:15px}
+.u{display:grid;grid-template-columns:62px 1fr 42px;gap:8px;align-items:center;font-size:13px;margin-top:4px}
+.u span:last-child{text-align:right;font-weight:700}
+.item{border-top:1px solid var(--line);padding:10px 0}
+.item:first-of-type{border-top:0;padding-top:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+button{font:inherit;font-weight:600;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);padding:10px 14px;min-height:44px;cursor:pointer}
+button.p{background:var(--ok);border-color:var(--ok);color:#fff}
+button.d{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.5}
+input{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);margin:8px 0}
+.err{color:var(--bad)}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));background:var(--text);color:var(--bg);padding:12px 14px;border-radius:10px;font-weight:600;display:none}
+.files{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all}
+ul{margin:4px 0 0;padding-left:18px}
+li{margin:3px 0}
+</style>
+</head>
+<body>
+<header><img src="/assets/agent-relay.svg" alt=""><div class="t" id="title">Agent Relay</div><span class="pill" id="pill">…</span></header>
+<main id="main"><div class="card mute">Loading…</div></main>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+const KEY = "agentRelayPhoneToken";
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let token = null, me = null, last = null, lastOk = 0, busy = false, timer = null;
+try { token = localStorage.getItem(KEY); } catch (e) {}
+
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
+function fmt(sec) { sec = Math.max(0, Math.round(sec || 0)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60); return h ? h + "h " + m + "m" : m ? m + "m" : sec + "s"; }
+function bar(pct) { const v = Math.max(0, Math.min(100, pct || 0)); return `<div class="bar"><i class="${v >= 90 ? "b" : v >= 70 ? "w" : ""}" style="width:${v}%"></i></div>`; }
+
+async function api(path, body) {
+  const opt = { headers: { "Authorization": "Bearer " + token } };
+  if (body !== undefined) { opt.method = "POST"; opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401) { forget(j.error); throw new Error("unpaired"); }
+  if (!r.ok && !j.error) j.error = "The computer answered " + r.status + ".";
+  return j;
+}
+
+function forget(msg) {
+  token = null; me = null; try { localStorage.removeItem(KEY); } catch (e) {}
+  clearInterval(timer); showPair(msg || "This phone is no longer paired.");
+}
+
+function showPair(msg, code) {
+  $("pill").textContent = "not paired"; $("pill").className = "pill";
+  $("main").innerHTML = `<div class="card"><h2>Connect this phone</h2>
+    ${msg ? `<p class="err">${esc(msg)}</p>` : ""}
+    ${code ? `<p>Pairing code <b>${esc(code)}</b>.</p>`
+    : `<p>On the computer, open Agent Relay, go to <b>AIs &amp; settings → Phones</b> and press <b>Pair a phone</b>. Scan the code with this phone's camera, or type the code here.</p>
+      <input id="cd" maxlength="12" autocapitalize="characters" autocomplete="off" placeholder="Pairing code" aria-label="Pairing code">`}
+    <div class="small mute">Name this phone so you recognise it on the computer:</div>
+    <input id="nm" maxlength="40" value="${esc(guessName())}" aria-label="Phone name">
+    <button class="p" id="go">Pair this phone</button>
+  </div>`;
+  $("go").onclick = () => { const c = code || ($("cd").value || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(); if (c) pair(c); else $("cd").focus(); };
+}
+
+function guessName() { const u = navigator.userAgent; return /iPhone/.test(u) ? "iPhone" : /iPad/.test(u) ? "iPad" : /Android/.test(u) ? "Android phone" : "Phone"; }
+
+async function pair(code) {
+  $("go").disabled = true;
+  try {
+    const r = await fetch("/api/phone/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: $("nm").value }) });
+    const j = await r.json();
+    if (!j.ok) { showPair(j.error, null); return; }
+    token = j.token; try { localStorage.setItem(KEY, token); } catch (e) {}
+    history.replaceState(null, "", "/phone");
+    toast("Paired. This phone can now " + (j.device.scope === "control" ? "watch and act." : "watch."));
+    start();
+  } catch (e) { showPair("Could not reach the computer. Is this phone on the same Wi-Fi?", code); }
+}
+
+async function start() {
+  try { me = (await api("/api/phone/me")).device; } catch (e) { if (e.message !== "unpaired") offline(); return; }
+  await refresh();
+  clearInterval(timer); timer = setInterval(() => { if (!busy && !document.hidden) refresh(); }, 5000);
+}
+
+function offline() {
+  $("pill").textContent = "offline"; $("pill").className = "pill off";
+  const note = lastOk ? "Last update " + new Date(lastOk).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "." : "";
+  const el = $("offline");
+  const html = `<div class="card" id="offline"><b>Can't reach the computer.</b><div class="mute small">Is it on and awake, with Agent Relay open, and is this phone on the same Wi-Fi? ${note}</div></div>`;
+  if (el) el.outerHTML = html; else $("main").insertAdjacentHTML("afterbegin", html);
+}
+
+async function refresh() {
+  let s;
+  try { s = await api("/api/phone/summary"); } catch (e) { if (e.message !== "unpaired") offline(); return; }
+  last = s; lastOk = Date.now(); render(s);
+}
+
+function render(s) {
+  const can = me && me.scope === "control";
+  if (s.noProject) { $("main").innerHTML = `<div class="card">No project is open on the computer.</div>`; return; }
+  $("title").textContent = s.project || "Agent Relay";
+  $("pill").textContent = s.alive ? "running" : "stopped"; $("pill").className = "pill " + (s.alive ? "on" : "off");
+  const ph = s.phase || {};
+  const pct = ph.estimate ? 100 * (ph.elapsed || 0) / ph.estimate : 0;
+  let h = `<div class="card"><h2>Now</h2><p class="big">${esc(s.alive ? (ph.label || "Working") : "Relay stopped")}</p>
+    <div class="mute small">${esc(s.task || "")}</div>
+    ${s.alive && ph.estimate ? `<div class="row" style="margin-top:10px">${bar(pct)}</div>
+      <div class="row small mute" style="justify-content:space-between;margin-top:4px"><span>${fmt(ph.elapsed)} in</span><span>about ${fmt(ph.remaining)} left</span></div>` : ""}
+    ${can ? `<div class="btns">${s.alive ? `<button class="d" data-a="stop">Stop relay</button>` : `<button class="p" data-a="start">Start relay</button>`}</div>` : ""}</div>`;
+
+  if (s.requests.length) {
+    h += `<div class="card"><h2>Asking permission · ${s.requests.length}</h2>` + s.requests.map(r => `<div class="item">
+      <b>${esc(r.action || r.type)}</b>${r.task ? ` <span class="mute">· ${esc(r.task)}</span>` : ""}
+      ${r.why ? `<div class="small">${esc(r.why)}</div>` : ""}
+      ${(r.files || []).length ? `<div class="files mute">${r.files.map(esc).join("<br>")}</div>` : ""}
+      ${can ? `<div class="btns"><button class="p" data-a="allow" data-id="${esc(r.id)}">Allow</button><button class="d" data-a="deny" data-id="${esc(r.id)}">Deny</button></div>` : ""}
+    </div>`).join("") + `</div>`;
+  }
+
+  h += `<div class="card"><h2>Waiting for your review · ${s.review.length}</h2>` + (s.review.length ? s.review.slice(0, 15).map(t => `<div class="item">
+      <b>${esc(t.id)}</b> <span class="small">${esc(t.title)}</span>
+      ${can ? `<div class="btns"><button class="p" data-a="approve" data-t="${esc(t.id)}">Looks good</button><button data-a="changes" data-t="${esc(t.id)}">Needs changes</button></div>` : ""}
+    </div>`).join("") + (s.review.length > 15 ? `<div class="mute small">… and ${s.review.length - 15} more on the computer.</div>` : "")
+    : `<div class="mute small">Nothing right now.</div>`) + `</div>`;
+
+  h += `<div class="card"><h2>AI tools</h2>` + s.providers.map(p => `<div class="ai" style="--c:${esc(p.color)}">
+      <div class="row"><b>${esc(p.name)}</b><span class="mute small">· ${p.running ? esc(p.state) : "idle"}</span></div>
+      <div class="mute small">${esc(p.role || "")}${p.model ? " · " + esc(String(p.model).replace(/^opencode\//, "")) : ""}</div>
+      ${p.usage.map(w => `<div class="u" title="${esc(w.detail || "")}"><span>${esc(w.label)}</span>${bar(w.usedPercent)}<span>${Math.round(w.usedPercent || 0)}%</span></div>`).join("")}
+      ${p.usage.filter(w => w.detail).map(w => `<div class="mute small">${esc(w.detail)}</div>`).join("")}
+    </div>`).join("") + `</div>`;
+
+  if (s.done.length || s.broke.length) {
+    h += `<div class="card"><h2>Recent</h2><ul>` + s.done.slice().reverse().map(d => `<li><span style="color:var(--ok)">✓</span> ${esc(d.ts)} ${esc(d.msg)}</li>`).join("")
+      + s.broke.slice().reverse().map(d => `<li><span style="color:var(--bad)">✗</span> ${esc(d.ts)} ${esc(d.msg)}</li>`).join("") + `</ul></div>`;
+  }
+  if (!can) h += `<div class="mute small">This phone can only view. To act from it, remove it on the computer and pair it again with control.</div>`;
+  $("main").innerHTML = h;
+  $("main").querySelectorAll("button[data-a]").forEach(b => b.onclick = () => act(b));
+}
+
+async function act(b) {
+  const a = b.dataset.a, t = b.dataset.t, id = b.dataset.id;
+  let path, body, done;
+  if (a === "start") { path = "/api/relay/start"; body = {}; done = "Starting."; }
+  else if (a === "stop") { if (!confirm("Stop the relay now? The task being built is interrupted.")) return; path = "/api/relay/stop"; body = {}; done = "Stopped."; }
+  else if (a === "allow" || a === "deny") { if (!confirm((a === "allow" ? "Allow" : "Deny") + " this request?")) return; path = "/api/requests/decide"; body = { id, decision: a === "allow" ? "approve" : "deny" }; done = a === "allow" ? "Allowed." : "Denied."; }
+  else if (a === "approve") { if (!confirm("Approve " + t + "? This records your sign-off.")) return; path = "/api/task/approve"; body = { task: t }; done = t + " approved."; }
+  else if (a === "changes") { const note = prompt("What should change in " + t + "?"); if (!note || !note.trim()) return; path = last && last.mode === "files" ? "/api/task/feedback" : "/api/task/changes"; body = { task: t, note }; done = "Feedback sent for " + t + "."; }
+  else return;
+  busy = true; b.disabled = true;
+  try {
+    let r = await api(path, body);
+    if (!r.ok && r.needsDecision === "unfinished") {
+      if (confirm(r.error + "\n\nSave those changes aside on the computer (nothing is lost), clean the project, and start?")) r = await api(path, { saveAside: true });
+      else { busy = false; b.disabled = false; return; }
+    }
+    toast(r.ok ? (r.message || done) : (r.error || "That did not work."));
+  } catch (e) { if (e.message !== "unpaired") toast("Could not reach the computer."); }
+  busy = false; refresh();
+}
+
+const m = location.hash.match(/pair=([A-Za-z0-9]+)/);
+if (m) showPair(token ? "This phone is already paired; pairing again replaces it." : "", m[1].toUpperCase());
+else if (token) start();
+else showPair("");
+document.addEventListener("visibilitychange", () => { if (!document.hidden && token) refresh(); });
+</script>
+</body>
+</html>
