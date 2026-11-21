@@ -136,7 +136,7 @@ def codex_usage():
 
 
 def claude_usage(relay):
-    """Claude reports its plan usage inside every `claude -p` call (a rate_limit_event) once it passes a warning level. Read the newest per
+    """Claude reports its plan usage inside every `claude -p` call (a rate_limit_event; older versions only above 75%). Read the newest per
     window from the relay's last Claude call and remember it between calls (the live log is overwritten by the next call)."""
     labels = {"five_hour": "5-hour", "seven_day": "weekly", "seven_day_opus": "weekly (Opus)", "seven_day_sonnet": "weekly (Sonnet)"}
     store = appapi.APPDATA / "claude-usage.json"
@@ -148,11 +148,14 @@ def claude_usage(relay):
         if not line.startswith('{"type":"rate_limit_event"'): continue
         try: info = json.loads(line).get("rate_limit_info") or {}
         except ValueError: continue
-        kind = info.get("rateLimitType")
-        if kind and info.get("utilization") is not None:
-            known[kind] = {"usedPercent": round(float(info["utilization"]) * 100), "resetsAt": info.get("resetsAt"), "label": labels.get(kind, kind),
-                           "windowMinutes": None, "seenAt": os.path.getmtime(f)}
-            changed = True
+        # Newer Claude versions put every window (5-hour and weekly) in each event; older ones only the one that passed a warning level.
+        wins = dict(info.get("unifiedWindows") or {})
+        if info.get("rateLimitType") and info.get("utilization") is not None: wins.setdefault(info["rateLimitType"], info)
+        for kind, w in wins.items():
+            if isinstance(w, dict) and w.get("utilization") is not None:
+                known[kind] = {"usedPercent": round(float(w["utilization"]) * 100), "resetsAt": w.get("resetsAt"), "label": labels.get(kind, kind),
+                               "windowMinutes": None, "seenAt": os.path.getmtime(f)}
+                changed = True
     if changed:
         try: appapi.APPDATA.mkdir(parents=True, exist_ok=True); store.write_text(json.dumps(known), encoding="utf-8")
         except OSError: pass
@@ -160,7 +163,7 @@ def claude_usage(relay):
     wins = [w for w in known.values() if (w.get("resetsAt") or 0) > now]       # a window that has already reset is no longer true
     if not wins: return None
     newest = max(w["seenAt"] for w in wins)
-    return {"windows": wins, "source": "from the last Claude call at " + time.strftime("%H:%M", time.localtime(newest)) + " (Claude only reports above 75%)", "asOf": newest}
+    return {"windows": wins, "source": "from the last Claude call at " + time.strftime("%H:%M", time.localtime(newest)), "asOf": newest}
 
 
 def fallback_counts(relay):
