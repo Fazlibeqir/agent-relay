@@ -840,11 +840,12 @@ function render(s){
   $("#now").innerHTML=n;
   $("#providers").innerHTML=s.providers.map(p=>{
     const l=p.live||{},run=l.running,w=(p.usage&&p.usage.windows)||[];
-    const urows=w.map(x=>{const left=x.resetsAt?x.resetsAt-Date.now()/1000:null;return `<div class="urow" title="${esc(x.label)}${left>0?" · resets in "+fmt(left):""}"><span>${esc(x.label)}</span>${bar(x.usedPercent)}<b>${Math.round(x.usedPercent)}%</b></div>`}).join("");
+    const urows=w.map(x=>{const left=x.resetsAt?x.resetsAt-Date.now()/1000:null;return `<div class="urow" title="${esc(x.label)}${x.detail?" · "+esc(x.detail):""}${left>0?" · resets in "+fmt(left):""}"><span>${esc(x.label)}</span>${bar(x.usedPercent)}<b>${Math.round(x.usedPercent)}%</b></div>`}).join("");
     const reset=w.length?(()=>{const x=w.reduce((m,y)=>(y.resetsAt&&(!m||y.resetsAt<m.resetsAt))?y:m,null);const left=x&&x.resetsAt?x.resetsAt-Date.now()/1000:0;return left>0?`<div class="mute" style="font-size:11px">${esc(x.label)} resets in ${fmt(left)}</div>`:""})():"";
     const lastAct=run?((l.actions||[]).slice(-1)[0]):"";
     const lim=p.lastLimit?`<div class="warnc" style="font-size:12px">hit its limit ${p.lastLimit.ts}${p.lastLimit.retryAt>Date.now()/1000?", retry "+new Date(p.lastLimit.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</div>`:"";
-    const fb=p.fallbackBuildsToday?`<div class="mute" style="font-size:12px">${p.fallbackBuildsToday} backup call(s) today</div>`:"";
+    const det=w.filter(x=>x.detail).map(x=>esc(x.detail)).join(" · ");
+    const fb=det?`<div class="mute" style="font-size:11px" title="${esc((p.usage&&p.usage.source)||"")}">${det}</div>`:(p.fallbackBuildsToday?`<div class="mute" style="font-size:12px">${p.fallbackBuildsToday} backup call(s) today</div>`:"");
     const model=(p.model||"").replace(/^opencode\//,"");
     return `<div class="aic" style="--c:${p.color}" title="${esc(p.note||"")}"><div class="aih"><span class="dot ${run?"on":""}"></span>${esc(p.name)}</div>
       <div class="mute small">${esc(p.role)}${model?" · "+esc(model):""}</div>
