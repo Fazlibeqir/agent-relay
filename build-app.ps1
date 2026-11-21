@@ -7,7 +7,7 @@ $venv = '.build\venv-win\Scripts\python.exe'
 $healthy = $false
 if (Test-Path $venv) { & $venv -c "pass" 2>$null; $healthy = ($LASTEXITCODE -eq 0) }
 if (-not $healthy) { python -m venv --clear .build\venv-win }
-& $venv -m pip install --quiet --disable-pip-version-check pyinstaller pywebview segno
+& $venv -m pip install --quiet --disable-pip-version-check pyinstaller pywebview segno tzdata
 if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 if (Test-Path dist\AgentRelay) { Remove-Item dist\AgentRelay -Recurse -Force }
 & $venv -m PyInstaller --noconfirm --onedir --noconsole --name AgentRelay --icon "$Kit\assets\agent-relay.ico" `
@@ -16,7 +16,7 @@ if (Test-Path dist\AgentRelay) { Remove-Item dist\AgentRelay -Recurse -Force }
 	--add-data "$Kit\dashboard\index.html;." --add-data "$Kit\dashboard\providers.json;." --add-data "$Kit\dashboard\review.js;." `
 	--add-data "$Kit\dashboard\dialogs.js;." --add-data "$Kit\dashboard\dialogs.css;." --add-data "$Kit\dashboard\phone.html;." `
 	--add-data "$Kit\template;template" --add-data "$Kit\relay.settings.example.json;." --add-data "$Kit\assets;assets" `
-	--hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import existing --hidden-import digest --hidden-import phone --hidden-import segno `
+	--hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import existing --hidden-import digest --hidden-import phone --hidden-import copilot_usage --hidden-import segno --collect-data tzdata `
 	--collect-all webview `
 	agent_relay_app.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }

@@ -14,6 +14,7 @@ HERE = pathlib.Path(__file__).parent
 import sys
 sys.path.insert(0, str(HERE))
 import appapi
+import copilot_usage as copilot_quota
 import phone
 import reviewmedia
 DEFAULTS = {"BASELINE": 600, "DISPATCH": 360, "BUILD": 900, "SUITE": 600, "REVIEW": 240}
@@ -137,34 +138,53 @@ def codex_usage():
 
 
 def claude_usage(relay):
-    """Claude reports its plan usage inside every `claude -p` call (a rate_limit_event; older versions only above 75%). Read the newest per
-    window from the relay's last Claude call and remember it between calls (the live log is overwritten by the next call)."""
+    """Claude reports its plan usage inside every `claude -p` call (a rate_limit_event). Newer versions list every window (5-hour,
+    weekly) with its utilization in each event; older ones report one window, with a percentage only above a warning level. Keep the
+    newest per window between calls (the live log is overwritten by the next call), and keep a reset time even without a percentage."""
     labels = {"five_hour": "5-hour", "seven_day": "weekly", "seven_day_opus": "weekly (Opus)", "seven_day_sonnet": "weekly (Sonnet)"}
     store = appapi.APPDATA / "claude-usage.json"
     try: known = json.loads(store.read_text(encoding="utf-8"))
     except (OSError, ValueError): known = {}
+    if not isinstance(known, dict): known = {}
     f = relay / "relay-live-claude.log"
+    try: seen_at = f.stat().st_mtime
+    except OSError: seen_at = 0
+    now = time.time()
     changed = False
     for line in tail_bytes(f, 1_000_000).splitlines():
-        if not line.startswith('{"type":"rate_limit_event"'): continue
-        try: info = json.loads(line).get("rate_limit_info") or {}
+        if '"rate_limit_event"' not in line: continue
+        try: event = json.loads(line)
         except ValueError: continue
-        # Newer Claude versions put every window (5-hour and weekly) in each event; older ones only the one that passed a warning level.
-        wins = dict(info.get("unifiedWindows") or {})
-        if info.get("rateLimitType") and info.get("utilization") is not None: wins.setdefault(info["rateLimitType"], info)
-        for kind, w in wins.items():
-            if isinstance(w, dict) and w.get("utilization") is not None:
-                known[kind] = {"usedPercent": round(float(w["utilization"]) * 100), "resetsAt": w.get("resetsAt"), "label": labels.get(kind, kind),
-                               "windowMinutes": None, "seenAt": os.path.getmtime(f)}
+        if not isinstance(event, dict) or event.get("type") != "rate_limit_event": continue
+        info = event.get("rate_limit_info") or {}
+        if not isinstance(info, dict): continue
+        windows = {k: w for k, w in (info.get("unifiedWindows") or {}).items() if isinstance(w, dict)} if isinstance(info.get("unifiedWindows"), dict) else {}
+        if isinstance(info.get("rateLimitType"), str): windows.setdefault(info["rateLimitType"], info)
+        for kind, w in windows.items():
+            reset_at, utilization = w.get("resetsAt"), w.get("utilization")
+            if kind not in labels: continue
+            if type(reset_at) not in (int, float) or not now < reset_at < float("inf"): continue
+            previous = known.get(kind) if isinstance(known.get(kind), dict) else {}
+            if previous.get("seenAt", 0) > seen_at: continue
+            snapshot = {"resetsAt": reset_at, "label": labels[kind], "seenAt": seen_at}
+            if type(utilization) in (int, float) and 0 <= utilization <= 1:
+                snapshot["usedPercent"] = round(utilization * 100)
+            elif previous.get("resetsAt") == reset_at and "usedPercent" in previous:
+                snapshot["usedPercent"] = previous["usedPercent"]
+            if previous != snapshot:
+                known[kind] = snapshot
                 changed = True
     if changed:
         try: appapi.APPDATA.mkdir(parents=True, exist_ok=True); store.write_text(json.dumps(known), encoding="utf-8")
         except OSError: pass
-    now = time.time()
-    wins = [w for w in known.values() if (w.get("resetsAt") or 0) > now]       # a window that has already reset is no longer true
-    if not wins: return None
-    newest = max(w["seenAt"] for w in wins)
-    return {"windows": wins, "source": "from the last Claude call at " + time.strftime("%H:%M", time.localtime(newest)), "asOf": newest}
+    active = [w for w in known.values() if isinstance(w, dict) and type(w.get("resetsAt")) in (int, float)
+              and now < w["resetsAt"] < float("inf") and "label" in w and "seenAt" in w]      # a window that has already reset is no longer true
+    if not active: return None
+    earliest = min(active, key=lambda w: w["resetsAt"])
+    newest = max(w["seenAt"] for w in active)
+    return {"windows": [w for w in active if "usedPercent" in w],
+            "reset": {"label": earliest["label"], "resetsAt": earliest["resetsAt"]},
+            "source": "Reported by Claude at " + time.strftime("%H:%M", time.localtime(newest)), "asOf": newest}
 
 
 def next_local_midnight():
@@ -221,18 +241,26 @@ def copilot_month_requests(month):
 
 def copilot_usage(relay, calls):
     now = datetime.datetime.now(datetime.timezone.utc)
-    used = copilot_month_requests(now.strftime("%Y-%m"))
+    nxt = datetime.datetime(now.year + (now.month == 12), now.month % 12 + 1, 1, tzinfo=datetime.timezone.utc).timestamp()
     wins = []
+    quota = copilot_quota.cached()          # asked through the Copilot CLI in the background; None until it first answers
+    if quota and quota.get("windows"):
+        for w in quota["windows"]:
+            wins.append({"label": w["label"], "usedPercent": w["usedPercent"], "resetsAt": nxt if w["label"] == "Premium" else None, "windowMinutes": None,
+                         "detail": "%g%% of your %s used (your Copilot account)" % (w["usedPercent"], "monthly premium requests" if w["label"] == "Premium" else w["label"])})
+        b = backup_window(relay, calls or 0)
+        if b: wins.append(b)
+        return {"windows": wins, "source": "your Copilot account, asked through the Copilot CLI", "asOf": time.time()}
+    used = copilot_month_requests(now.strftime("%Y-%m"))
     if used is not None:
         allowance = read_settings(relay).get("copilotMonthlyPremium", 300)
         if not isinstance(allowance, (int, float)) or allowance <= 0: allowance = 300
-        nxt = datetime.datetime(now.year + (now.month == 12), now.month % 12 + 1, 1, tzinfo=datetime.timezone.utc).timestamp()
         wins.append({"label": "month", "usedPercent": min(100, round(100 * used / allowance)), "resetsAt": nxt, "windowMinutes": None,
                      "detail": "%g of %g premium requests this month" % (used, allowance)})
     b = backup_window(relay, calls or 0)
     if b: wins.append(b)
     if not wins: return None
-    return {"windows": wins, "source": "Copilot sessions on this PC; the monthly allowance is assumed to be 300 (Copilot Pro) unless copilotMonthlyPremium is set in relay.settings.json", "asOf": time.time()}
+    return {"windows": wins, "estimate": True, "source": "Copilot sessions on this PC (the account could not be asked); the monthly allowance is assumed to be 300 (Copilot Pro) unless copilotMonthlyPremium is set in relay.settings.json", "asOf": time.time()}
 
 
 def fallback_counts(relay):
@@ -329,7 +357,8 @@ def build_state(relay, providers):
         pid = p["id"]
         row["model"] = {"claude": claude_model, "codex": codex_model}.get(pid, p.get("defaultModel", ""))
         row["live"] = live.get(pid) or {"running": False, "state": "idle", "actions": []}
-        row["lastLimit"] = limits.get(pid)
+        limit = limits.get(pid)
+        row["lastLimit"] = limit if limit and (limit.get("retryAt") or 0) > now else None
         if pid in active_roles:
             row["role"], row["model"] = active_roles[pid]
         row["fallbackBuildsToday"] = fb.get(pid)
@@ -527,7 +556,7 @@ def wizard_state(relay):
 
 ASSETS = HERE / "assets" if (HERE / "assets").exists() else HERE.parent / "assets"
 ASSET_OK = re.compile(r"^(agent-relay[A-Za-z0-9._-]*|flux-logo\.(png|svg))$")
-EXTERNAL_OK = ("https://flux.mk", "https://www.flux.mk")      # the only addresses the page may ask the app to open in the normal browser
+EXTERNAL_OK = ("https://flux.mk", "https://www.flux.mk", "https://claude.ai/settings/usage")      # the only addresses the page may ask the app to open in the normal browser
 
 
 def flux_logo():

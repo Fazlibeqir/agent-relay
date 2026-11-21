@@ -11,7 +11,7 @@ rm -rf dist/AgentRelay
   --paths dashboard --add-data "$K/dashboard/index.html:." --add-data "$K/dashboard/providers.json:." --add-data "$K/dashboard/review.js:." --add-data "$K/template:template" \
   --add-data "$K/dashboard/dialogs.js:." --add-data "$K/dashboard/dialogs.css:." --add-data "$K/dashboard/phone.html:." \
   --add-data "$K/relay.settings.example.json:." --add-data "$K/assets:assets" --hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai \
-  --hidden-import existing --hidden-import digest --hidden-import phone --hidden-import segno --collect-submodules webview --hidden-import webview.platforms.qt agent_relay_app.py
+  --hidden-import existing --hidden-import digest --hidden-import phone --hidden-import copilot_usage --hidden-import segno --collect-submodules webview --hidden-import webview.platforms.qt agent_relay_app.py
 # Mesa loads the host driver. Pair it with the host C++ runtime and GBM so it
 # sees the matching symbols and driver directories on Fedora and other Linux hosts.
 rm -f -- dist/AgentRelay/_internal/libstdc++.so.6 dist/AgentRelay/_internal/libgbm.so.1

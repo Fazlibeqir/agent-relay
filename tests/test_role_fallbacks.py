@@ -245,6 +245,71 @@ relay_runtime guard "echo PASS"
 
 
 class DashboardState(unittest.TestCase):
+    def test_claude_reset_is_visible_without_a_reported_percentage(self):
+        import server
+        with tempfile.TemporaryDirectory() as folder:
+            relay = Path(folder)
+            log = relay / "relay-live-claude.log"
+            event = {"type": "rate_limit_event", "rate_limit_info": {
+                "status": "allowed", "rateLimitType": "five_hour", "resetsAt": 2200005000,
+            }}
+            with patch.object(server.appapi, "APPDATA", relay / "config"), patch.object(server.time, "time", return_value=2200000000):
+                log.write_text(json.dumps(event), encoding="utf-8")
+                usage = server.claude_usage(relay)
+                self.assertEqual(usage["reset"], {"label": "5-hour", "resetsAt": 2200005000})
+                self.assertEqual(usage["windows"], [])
+
+                event["rate_limit_info"]["utilization"] = 0.82
+                log.write_text(json.dumps(event), encoding="utf-8")
+                self.assertEqual(server.claude_usage(relay)["windows"][0]["usedPercent"], 82)
+                del event["rate_limit_info"]["utilization"]
+                log.write_text(json.dumps(event), encoding="utf-8")
+                self.assertEqual(server.claude_usage(relay)["windows"][0]["usedPercent"], 82)
+                event["rate_limit_info"]["resetsAt"] = 2200006000
+                log.write_text(json.dumps(event), encoding="utf-8")
+                self.assertEqual(server.claude_usage(relay)["windows"], [])
+
+    def test_claude_reads_every_window_from_the_new_event_format(self):
+        import server
+        with tempfile.TemporaryDirectory() as folder:
+            relay = Path(folder)
+            event = {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "rateLimitType": "five_hour", "resetsAt": 2200005000,
+                     "unifiedWindows": {"five_hour": {"utilization": 0.54, "resetsAt": 2200005000, "status": "allowed"},
+                                        "seven_day": {"utilization": 0.04, "resetsAt": 2200400000, "status": "allowed"}}}}
+            with patch.object(server.appapi, "APPDATA", relay / "config"), patch.object(server.time, "time", return_value=2200000000):
+                (relay / "relay-live-claude.log").write_text(json.dumps(event), encoding="utf-8")
+                usage = server.claude_usage(relay)
+                self.assertEqual(sorted((w["label"], w["usedPercent"]) for w in usage["windows"]), [("5-hour", 54), ("weekly", 4)])
+                self.assertEqual(usage["reset"], {"label": "5-hour", "resetsAt": 2200005000})
+
+    def test_copilot_card_prefers_the_account_quota_and_falls_back_to_the_estimate(self):
+        import server
+        with tempfile.TemporaryDirectory() as folder:
+            relay = Path(folder)
+            with patch.object(server.copilot_quota, "cached", return_value={"windows": [{"label": "Premium", "usedPercent": 21}], "installed": True}):
+                usage = server.copilot_usage(relay, 2)
+                self.assertEqual([(w["label"], w["usedPercent"]) for w in usage["windows"]], [("Premium", 21), ("today", 20)])
+                self.assertNotIn("estimate", usage)
+            with patch.object(server.copilot_quota, "cached", return_value=None), patch.dict(os.environ, {"COPILOT_HOME": str(relay / "none")}):
+                usage = server.copilot_usage(relay, 0)
+                self.assertEqual([w["label"] for w in usage["windows"]], ["today"])
+
+    def test_copilot_usage_uses_only_reported_finite_allowances(self):
+        from copilot_usage import quota_windows
+        windows = quota_windows({
+            "premium_interactions": {"entitlementRequests": 200, "remainingPercentage": 79,
+                                     "resetDate": "2026-11-21T10:28:53.034Z"},
+            "chat": {"entitlementRequests": -1, "remainingPercentage": 100},
+            "completions": {"entitlementRequests": 0, "remainingPercentage": 100},
+            "weekly": {"entitlementRequests": 10, "remainingPercentage": float("nan")},
+            "ai_credits": {"entitlementRequests": 50, "remainingPercentage": 100,
+                           "resetDate": "2026-12-01T00:00:00Z"},
+        })
+        self.assertEqual(windows, [
+            {"label": "Premium", "usedPercent": 21},
+            {"label": "AI credits", "usedPercent": 0},
+        ])
+
     def test_settings_round_trip_and_invalid_backup_preserves_file(self):
         import server
         with tempfile.TemporaryDirectory() as folder:
@@ -275,6 +340,13 @@ class DashboardState(unittest.TestCase):
                 self.assertIn("retry", state["phase"]["label"])
                 self.assertIn("retryAt", state["phase"])
                 self.assertNotIn("until", state["phase"])
+                retry_at = state["phase"]["retryAt"]
+                with patch.object(server.time, "time", return_value=retry_at - 1):
+                    active = server.build_state(relay, [{"id": "claude"}])
+                    self.assertEqual(active["providers"][0]["lastLimit"]["retryAt"], retry_at)
+                with patch.object(server.time, "time", return_value=retry_at):
+                    expired = server.build_state(relay, [{"id": "claude"}])
+                    self.assertIsNone(expired["providers"][0]["lastLimit"])
                 with (relay / "relay.log").open("a", encoding="utf-8") as log:
                     log.write("[2026-11-18 10:02:00] role reviewer running copilot auto\n")
                 state = server.build_state(relay, [{"id": "claude"}, {"id": "copilot"}])
