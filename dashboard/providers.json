@@ -1,7 +1,7 @@
 {
   "providers": [
     {"id": "claude",   "name": "Claude Code", "role": "Dispatcher and reviewer", "color": "#d97757", "usage": "claude-stream",
-     "note": "Plan usage appears here once Claude reports it (it does so above 75%); otherwise open the Claude app to see it."},
+     "note": "Plan usage appears when Claude reports it during a relay call. Claude Settings > Usage shows your account totals."},
     {"id": "codex",    "name": "Codex", "role": "Main builder", "color": "#10a37f", "usage": "codex-session-log"},
     {"id": "copilot",  "name": "GitHub Copilot", "role": "Backup AI", "color": "#6e5ff5", "usage": "copilot-sessions", "defaultModel": "auto",
      "note": "Can build, dispatch or review when the configured primary tool is unavailable."},
