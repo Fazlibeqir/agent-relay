@@ -69,7 +69,7 @@ This is a safety net, not a sandbox: the AIs run with your permissions and could
 
 Ready-made builds for Windows and Linux are on the [Releases page](../../releases). Agent Relay is a desktop app with its own window and a loading screen.
 
-- **Windows 10/11:** `AgentRelay-windows-x64.zip`. Extract it and double-click `AgentRelay.exe` (the window uses WebView2, which is part of Windows). Windows marks downloaded files as blocked; the app clears that mark on its own folder at first start. If it still opens in your browser, right-click the zip, choose Properties, tick Unblock, and extract again.
+- **Windows 10/11:** Extract `AgentRelay-windows-x64.zip` and double-click `AgentRelay.exe`. If WebView2 is missing, Agent Relay offers to install it with the included Microsoft setup. Startup failures show a Windows error and log details in `%USERPROFILE%\.agent-relay-window-error.log`. For browser mode, run `AgentRelay.exe --open`.
 - **Linux (x86_64):** `AgentRelay-linux-x86_64.tar.gz`. Extract it and run `./AgentRelay/AgentRelay`. It uses the distro's C++ runtime and Mesa/GBM graphics libraries. On Debian or Ubuntu, the runtime packages include `libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1 libgbm1 libstdc++6`.
 
 They are built by a GitHub Actions workflow (`.github/workflows/release.yml`) that starts each build to check it comes up before publishing. To make a release, push a tag such as `v0.2.0`.

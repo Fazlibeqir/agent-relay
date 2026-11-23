@@ -1,7 +1,7 @@
 """Agent Relay: the desktop app. Starts the local engine and shows the interface in its own native window (Windows and Linux),
 with a splash screen while it loads. Linux source launches use GTK and WebKitGTK.
 
-  python agent_relay_app.py [--relay <folder>] [--port 8765]
+  python agent_relay_app.py [--relay <folder>] [--port 8765] [--open]
   AGENT_RELAY_NO_WINDOW=1 runs the engine only (used by the build checks)
 """
 import os, socket, sys, pathlib, threading, time
@@ -13,24 +13,14 @@ sys.path.insert(0, str(base if hasattr(sys, "_MEIPASS") else base / "dashboard")
 
 
 def unblock_download():
-    """Windows marks every file of a downloaded zip as 'from the internet' and the window library (a .NET component) refuses to load such files.
-    Clear that mark on this app's own folder before the window library is imported, so a freshly extracted zip just works."""
+    """Clear the download marker on this bundle's own DLLs before .NET loads them."""
     if os.name != "nt" or not hasattr(sys, "_MEIPASS"): return
-    exe = sys.executable
-    try:
-        with open(exe + ":Zone.Identifier", "rb"): pass          # the mark is a hidden stream on the file; opening it fails when there is none
-    except OSError:
-        return
-    try:
-        import subprocess
-        folder = str(pathlib.Path(exe).parent).replace("'", "''")
-        subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Get-ChildItem -LiteralPath '%s' -Recurse -File | Unblock-File" % folder],
-                       creationflags=0x08000000, timeout=180, stdin=subprocess.DEVNULL, capture_output=True)
-    except Exception:
-        pass
+    for library in base.rglob("*.dll"):
+        if not library.is_symlink() and library.resolve().is_relative_to(base):
+            try: os.unlink(str(library) + ":Zone.Identifier")
+            except OSError: pass
 
 
-unblock_download()
 import osops, server
 
 ASSETS = base / "assets"
@@ -71,18 +61,27 @@ def run_window(url):
 
         return run(url, splash_html(), osops.DIALOGS, server.Handler)
     try:
+        windows = sys.platform.startswith("win")
+        if windows:
+            from windows_window import ensure_runtime
+
+            ensure_runtime(base / "MicrosoftEdgeWebview2Setup.exe")
+            unblock_download()
         import webview
-    except Exception:
-        return False
-    try:
+        if windows:
+            from webview.guilib import initialize
+
+            if initialize("edgechromium").renderer != "edgechromium":
+                raise RuntimeError("WebView2 could not start. Check that the Windows .NET Framework 4.6.2 or newer is installed.")
         fd = getattr(webview, "FileDialog", None)
         folder_kind = fd.FOLDER if fd else webview.FOLDER_DIALOG
         open_kind = fd.OPEN if fd else webview.OPEN_DIALOG
-        window = webview.create_window("Agent Relay", html=splash_html(), width=1240, height=880, min_size=(980, 640), text_select=True, background_color="#0b0f14")
+        page = {"url": url} if windows else {"html": splash_html()}
+        window = webview.create_window("Agent Relay", **page, width=1240, height=880, min_size=(980, 640), text_select=True, background_color="#0b0f14")
         pick = lambda kind: (lambda title: (lambda r: r[0] if r else "")(window.create_file_dialog(kind)))
         osops.DIALOGS["folder"] = pick(folder_kind); osops.DIALOGS["file"] = pick(open_kind)
         server.Handler.on_quit = window.destroy                # the in-page "Quit app" button closes the window
-        if sys.platform.startswith("win"):
+        if windows:
             def show_notification(title, message):
                 from System import Action
                 from System.Drawing import SystemIcons
@@ -111,18 +110,36 @@ def run_window(url):
             time.sleep(0.9)                                    # let the splash be seen; the page shows the same splash until its first data is in
             win.load_url(url)
         icon = str(ASSETS / "agent-relay-512.png")
-        if sys.platform.startswith("win"): webview.start(load, window)           # WebView2, part of Windows 10/11; the icon comes from the exe
+        if windows:
+            ready = threading.Event()
+            timed_out = threading.Event()
+            window.events.loaded += ready.set
+            window.events.closed += ready.set
+
+            def check_load():
+                if not ready.wait(30):
+                    timed_out.set()
+                    window.destroy()
+
+            webview.start(check_load, gui="edgechromium")
+            if timed_out.is_set():
+                raise RuntimeError("The native WebView2 window did not load the dashboard within 30 seconds.")
         else:
             try: webview.start(load, window, gui="qt", icon=icon)               # Linux: the bundled Qt web engine
             except Exception: webview.start(load, window)
         return True
-    except Exception:
+    except Exception as error:
         try:                                                   # leave a note for whoever has to find out why there was no window
             import traceback
             log = (osops.pathlib.Path.home() / ".agent-relay-window-error.log")
             log.write_text(traceback.format_exc(), encoding="utf-8")
         except Exception:
             pass
+        if sys.platform.startswith("win"):
+            from windows_window import native_message
+
+            native_message(f"Agent Relay could not open its desktop window.\n\n{error}\n\n"
+                           "Startup details: %USERPROFILE%\\.agent-relay-window-error.log")
         return False
 
 
@@ -141,10 +158,19 @@ def main(args):
         engine = threading.Thread(target=srv.serve_forever, daemon=True)
         engine.start()
         try:
+            if options.open:
+                if not os.environ.get("AGENT_RELAY_NO_BROWSER"):
+                    import webbrowser
+
+                    webbrowser.open(url)
+                engine.join()
+                return 0
             if run_window(url):
                 if sys.platform.startswith("win"):
                     os._exit(0)  # Preserve the WebView2 process shutdown path.
                 return 0
+            if sys.platform.startswith("win"):
+                return 1
             if sys.platform.startswith("linux"):
                 message = "Agent Relay could not open its Linux desktop window."
                 if not hasattr(sys, "_MEIPASS"):

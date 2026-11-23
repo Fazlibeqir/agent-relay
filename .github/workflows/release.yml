@@ -35,6 +35,33 @@ jobs:
           curl -fs http://127.0.0.1:8791/api/wizard | head -c 200; echo
           curl -fs http://127.0.0.1:8791/assets/agent-relay.svg | head -c 80; echo
           curl -s -X POST http://127.0.0.1:8791/api/quit -H 'Content-Type: application/json' -d '{}' || true
+      - name: Check the Windows desktop window opens
+        shell: pwsh
+        run: |
+          $app = Start-Process -FilePath ./dist/AgentRelay/AgentRelay.exe -ArgumentList '--port','8792' -WindowStyle Hidden -PassThru
+          $ready = $false
+          try {
+            foreach ($attempt in 1..40) {
+              $app.Refresh()
+              if ($app.HasExited) { break }
+              $view = Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe' AND ParentProcessId = $($app.Id)"
+              if ($app.MainWindowHandle -ne 0 -and $app.MainWindowTitle -eq 'Agent Relay' -and $view) {
+                $ready = $true
+                break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) {
+              if (Test-Path ~/.agent-relay-window-error.log) { Get-Content ~/.agent-relay-window-error.log }
+              throw 'Agent Relay did not open a native WebView2 window.'
+            }
+          } finally {
+            if (-not $app.HasExited) {
+              try { Invoke-RestMethod http://127.0.0.1:8792/api/quit -Method Post -ContentType application/json -Body '{}' -TimeoutSec 3 | Out-Null }
+              catch {}
+              if (-not $app.WaitForExit(5000)) { Stop-Process -Id $app.Id }
+            }
+          }
       - name: Collect
         shell: bash
         run: |
@@ -116,7 +143,7 @@ jobs:
           cat > notes.md <<'EOF'
           Agent Relay turns an idea (or a project you already have) into a plan and builds it task by task with several AI tools, while you watch. It is a desktop app with its own window.
 
-          **Windows (10 or 11):** download `AgentRelay-windows-x64.zip`, extract it, and double-click `AgentRelay.exe` inside. Windows SmartScreen may warn once because the file is not code-signed (More info, then Run anyway). If the app opens in your browser instead of its own window, right-click the zip, choose Properties, tick Unblock, and extract it again.
+          **Windows (10 or 11):** download `AgentRelay-windows-x64.zip`, extract it, and double-click `AgentRelay.exe`. If WebView2 is missing, Agent Relay offers to install the Microsoft runtime. For browser mode, run `AgentRelay.exe --open`.
 
           **Linux (x86_64, a normal desktop):** download `AgentRelay-linux-x86_64.tar.gz`, then `tar -xzf AgentRelay-linux-x86_64.tar.gz && ./AgentRelay/AgentRelay`.
           It needs a few system libraries, including the graphics driver and C++ runtime. On Debian or Ubuntu: `sudo apt install libnss3 libxkbcommon-x11-0 libxcb-cursor0 libasound2 libgl1 libgbm1 libstdc++6`.
