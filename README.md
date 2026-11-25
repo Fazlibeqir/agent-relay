@@ -121,6 +121,22 @@ These defaults apply to newly created projects. Existing projects keep their loc
 
 Run regression tests with `python -m unittest discover -s tests -v` (requires Bash / Git Bash). Provider commands are mocked; the tests do not spend AI usage or change a project.
 
+## Parallel mode
+
+The **Work mode** switch on the Overview tab chooses between *One task at a time* (the default) and *In parallel*. In parallel mode the primary AI (the dispatcher) reads the open tasks and
+picks two or more that can be built at the same time, one per builder (`parallel.workers` in `relay.settings.json`: codex, copilot, opencode). Each builder works its task in its own git
+worktree next to the project (`<project>-lanes/<task>`); when they are done, the relay merges, tests and reviews one lane at a time, exactly as in a normal round, with the reviewer
+required to be a different model from the one that built the task.
+
+- Only builds overlap. The full test suite, the merge and the review run one at a time (the tests share ports and user folders), so the gain is the build time, not a multiple of the whole round.
+- A task that depends on an unfinished task (`Depends on T10` in its file) is never planned with it. Two tasks that edit the same files are the dispatcher's call; if their merge conflicts the second one is
+  redone on the new base next round. If the project tests fail after a merge the merge is undone; a task that fails twice is parked for you.
+- A builder that runs out of usage ends its lane and the round goes on without it. Copilot needs a named model (AIs & settings, backup models) so a review can tell who built the work.
+- If fewer than two builders are available, or no two tasks can go together, the round runs one task the normal way. Switching modes applies from the next round.
+- Each task shows who built it and with which model on the Tasks tab, and the reviewer records it in the task's review log ("Built by codex (gpt-6.1-sol).").
+- Parallel mode is for projects that use the standard task-file runner (`relay-files.sh`); a project with its own `relay.sh` keeps working as before. After updating Agent Relay, press *Update Relay* on a project to install the parallel scripts.
+- A lane that is interrupted (the relay stopped mid-round) is thrown away at the next start; there is no resume for lanes, only for the merge, test and review step.
+
 ## Routing and recovery
 
 The file-based runner persists task phases, provider calls and evidence under `.relay/` (ignored by git). On **Start building**, it resumes the same task when the saved branch, commit, task, test command, and project files match. If the builder had already finished, Relay saves the recorded changes and runs tests without calling the builder again. A completed test run resumes directly into review when its evidence still matches.

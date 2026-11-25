@@ -13,6 +13,7 @@ S_BUILDER_PROVIDER=codex; S_BUILDER_MODEL=auto; S_BUILDER_EFFORT=auto
 S_REVIEWER_PROVIDER=claude; S_REVIEWER_MODEL=claude-sonnet-5-5; S_REVIEWER_EFFORT=high
 S_CLEANER_PROVIDER=none; S_FALLBACKS="copilot opencode"; S_FALLBACK_MAX=10
 S_DISPATCHER_FALLBACKS="codex copilot opencode"; S_REVIEWER_FALLBACKS="copilot opencode codex"
+S_MODE=serial; S_PARALLEL_WORKERS="codex copilot opencode"
 S_COPILOT_MODEL=auto; S_OPENCODE_MODEL=opencode/deepseek-v4.1-flash-free; S_ADVISOR=claude-opus-5-5; S_IDLE_CHORES="backend digest"
 LAST_CFG_MSG=""
 relay_runtime() {
@@ -68,7 +69,7 @@ run() {  # run <label> <prompt> <command...> — the prompt goes in on stdin; re
   # The agent's output goes to relay-live-<label>.log as it happens (relay-status.ps1 shows it live) and its
   # start time to relay-live-<label>.start (0 once it has finished); the full text is still appended to relay.log.
   local label=$1 prompt=$2; shift 2
-  local live="relay-live-$label.log"
+  local live="${RELAY_LIVE_DIR:+$RELAY_LIVE_DIR/}relay-live-$label.log"      # RELAY_LIVE_DIR: parallel lanes write their live logs into the main folder
   while true; do
     local out rc call_id=""
     local access_cli
@@ -80,9 +81,9 @@ run() {  # run <label> <prompt> <command...> — the prompt goes in on stdin; re
     if [ -f relay-runtime.py ]; then
       call_id=$(RELAY_ACCESS_CLI="$access_cli" relay_runtime begin "${ROLE_NOW:-builder}" "$label" "${CODEX_PICK_MODEL:-auto}" "$live") || return 1
     fi
-    date +%s > "relay-live-$label.start"
+    date +%s > "${RELAY_LIVE_DIR:+$RELAY_LIVE_DIR/}relay-live-$label.start"
     printf '%s\n' "$prompt" | timeout --kill-after=60 "${AGENT_TIMEOUT:-$S_AGENT_TIMEOUT}" "$@" > "$live" 2>&1; rc=${PIPESTATUS[1]}
-    echo 0 > "relay-live-$label.start"
+    echo 0 > "${RELAY_LIVE_DIR:+$RELAY_LIVE_DIR/}relay-live-$label.start"
     if [ "$label" = claude ]; then out=$(python relay-claude-result.py < "$live"); else out=$(cat "$live"); fi
     printf '%s\n' "===== $label  $(date '+%F %T')  rc=$rc =====" "$out" >> "$LOG"
     LAST_OUT=$out; LAST_RC=$rc
@@ -117,7 +118,7 @@ fi
 
 tool_run() {  # 0 success, 1 unavailable, 2 quota, 3 failed, 4 policy-blocked.
   local tool=$1 prompt=$2 model=${3:-} effort=${4:-} cmd=() live rc out g deny call_id=""
-  live="relay-live-$tool.log"
+  live="${RELAY_LIVE_DIR:+$RELAY_LIVE_DIR/}relay-live-$tool.log"
   case "$tool" in
     claude)
       command -v "${CLAUDE_BIN:-claude}" >/dev/null 2>&1 || return 1
@@ -154,9 +155,9 @@ tool_run() {  # 0 success, 1 unavailable, 2 quota, 3 failed, 4 policy-blocked.
     call_id=$(RELAY_ACCESS_CLI="$access_cli" relay_runtime begin "${ROLE_NOW:-builder}" "$tool" "${model:-auto}" "$live") || return 4
   fi
   deny='"*":"allow"'; for g in "${GIT_DENY[@]}"; do deny="$deny,\"git $g*\":\"deny\""; done
-  date +%s > "relay-live-$tool.start"
+  date +%s > "${RELAY_LIVE_DIR:+$RELAY_LIVE_DIR/}relay-live-$tool.start"
   printf '%s\n' "$prompt" | OPENCODE_CONFIG_CONTENT="{\"permission\":{\"bash\":{$deny}}}" timeout --kill-after=60 "$AGENT_TIMEOUT" "${cmd[@]}" > "$live" 2>&1; rc=${PIPESTATUS[1]}
-  echo 0 > "relay-live-$tool.start"
+  echo 0 > "${RELAY_LIVE_DIR:+$RELAY_LIVE_DIR/}relay-live-$tool.start"
   if [ "$tool" = claude ]; then out=$(python relay-claude-result.py < "$live"); else out=$(cat "$live"); fi
   printf '%s\n' "===== $tool  $(date '+%F %T')  rc=$rc =====" "$out" >> "$LOG"
   LAST_OUT=$out; LAST_RC=$rc

@@ -27,8 +27,8 @@ LOG_LINE = re.compile(r"^\[(20\d\d-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$")
 
 def kind_of(m):
     for pat, k in ((r"^running baseline test suite", "BASELINE"), (r"^baseline tests pass", "BASELINE_OK"), (r"^baseline tests FAIL", "STOPPED"),
-                   (r"choosing next task|^role dispatcher running", "DISPATCH"), (r"(Codex|builder) building", "BUILD"),
-                   (r"made \d+ commit\(s\); running the full suite", "SUITE"), (r"Claude reviewing|reviewing", "REVIEW"),
+                   (r"choosing next task|^role dispatcher running|parallel mode: the dispatcher plans", "DISPATCH"), (r"(Codex|builder) building|builds in its own worktree", "BUILD"),
+                   (r"(made|merged) \d+ commit\(s\)[^;]*; running the full suite", "SUITE"), (r"Claude reviewing|reviewing", "REVIEW"),
                    (r"review done", "ROUND_DONE"), (r"^no task the agents can advance", "IDLE"), (r"hit a usage limit", "LIMIT"),
                    (r"^role reviewer running", "REVIEW"),
                    (r"out of usage — fallback builder", "FALLBACK"), (r"^dispatcher failed", "DISPATCH_FAIL"),
@@ -316,6 +316,13 @@ def build_state(relay, providers):
         if m: state["round"], state["task"] = m.group(1), m.group(2)
         m = re.match(r"round (\d+) — choosing", e["msg"])
         if m: state["round"] = m.group(1)
+    lanes = []      # parallel mode: who builds which task in the latest round
+    plan_at = max([i for i, e in enumerate(run) if "parallel mode: the dispatcher plans" in e["msg"]] or [-1])
+    for e in (run[plan_at:] if plan_at >= 0 else []):
+        m = re.search(r"(T\d+[a-z]?): (\w+) builds in its own worktree", e["msg"])
+        if m: lanes.append({"task": m.group(1), "provider": m.group(2)})
+    state["lanes"] = lanes
+    state["mode"] = read_settings(relay).get("mode", "serial")
     pm = {"BASELINE": ("Baseline test suite", "BASELINE"), "DISPATCH": ("Choosing the next task", "DISPATCH"), "BUILD": ("Building", "BUILD"),
           "SUITE": ("Full test suite", "SUITE"), "REVIEW": ("Reviewing", "REVIEW")}
     if cur:
@@ -517,6 +524,32 @@ def settings_state(relay):
     return {"effective": cfg, "valid": ok, "errors": problems["errors"], "warnings": problems["warnings"], "file": raw, "providers": mod.all_providers(str(relay / "relay.settings.json")), "builtin": list(mod.PROVIDERS)}
 
 
+def parallel_support(relay):
+    """Parallel mode needs the standard task-file runner with the parallel scripts installed in the project."""
+    r = pathlib.Path(relay)
+    script = appapi.relay_script(r)
+    if script != "relay-files.sh":
+        return {"available": False, "reason": "This project uses its own runner (%s). Parallel mode works with the standard task-file runner." % (script or "none")}
+    if not (r / "relay-parallel.sh").is_file():
+        return {"available": False, "reason": "Press Update Relay first: this project's runner does not have parallel mode yet."}
+    return {"available": True, "reason": ""}
+
+
+def set_mode(relay, mode):
+    """Switch between one task at a time and parallel mode: only the mode key of relay.settings.json changes, validated like any other save."""
+    if mode not in ("serial", "parallel"): return False, {"errors": ["mode must be serial or parallel"], "warnings": []}
+    support = parallel_support(relay)
+    if mode == "parallel" and not support["available"]: return False, {"errors": [support["reason"]], "warnings": []}
+    f = pathlib.Path(relay) / "relay.settings.json"
+    raw = {}
+    if f.exists():
+        try: raw = json.loads(f.read_text(encoding="utf-8-sig"))
+        except ValueError: return False, {"errors": ["relay.settings.json cannot be read. Fix it under AIs & settings first."], "warnings": []}
+        if not isinstance(raw, dict): return False, {"errors": ["relay.settings.json must be an object"], "warnings": []}
+    raw["mode"] = mode
+    return save_settings(relay, raw)
+
+
 def save_settings(relay, body):
     """Validate a candidate settings object with the same rules the relay uses; write atomically only if it passes."""
     mod = settings_module(relay)
@@ -556,7 +589,7 @@ def wizard_state(relay):
                 "canStart": not start_error, "startError": start_error,
                 "canConfigureSavedTasks": tasks_ready and (r / "AGENTS.md").is_file() and not (r / "relay.project.json").exists(),
                 "requires": [s for s in (appapi.toolchain_status(x) for x in info.get("requires", []) if isinstance(x, str)) if s],
-                "runnerUpdate": appapi.runner_update_available(r)}
+                "runnerUpdate": appapi.runner_update_available(r), "parallel": parallel_support(r), "mode": read_settings(r).get("mode", "serial")}
     return {"project": proj, "githost": appapi.githost_status(), "plannerProviders": planner.PLANNER_PROVIDERS}
 
 
@@ -871,6 +904,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/settings":
                 ok, problems = save_settings(self.relay, body)
                 return reply({"saved": ok, **problems}, 200 if ok else 400)
+            if path == "/api/settings/mode":
+                ok, problems = set_mode(self.relay, str(body.get("mode", "")))
+                return reply({"saved": ok, "mode": str(body.get("mode", "")), **problems}, 200 if ok else 400)
         except Exception as ex:
             return reply({"ok": False, "saved": False, "errors": [str(ex)], "error": str(ex)}, 400)
         self._send(404, "not found", "text/plain")
