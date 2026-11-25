@@ -35,7 +35,7 @@ printf '%s\n' '{"type":"result","result":"reviewed"}'
 
 BUILDER = r'''#!/usr/bin/env bash
 tool=$(basename "$0")
-cat > /dev/null
+cat > "$MOCK_ROOT/builder-prompt-$tool.txt"
 id=$(sed -n 1p CURRENT_TASK.md | sed 's#tasks/##; s#\.md##' | tr -d '\r')
 mode_var="MOCK_$(echo "$tool" | tr a-z A-Z)"
 if [ "${!mode_var:-ok}" = limit ]; then printf '%s\n' "You've hit your weekly limit · resets Nov 20, 12pm"; exit 1; fi
@@ -84,6 +84,14 @@ class ParallelRun(unittest.TestCase):
         if result.returncode:
             raise AssertionError(result.stderr)
         return result.stdout.strip()
+
+    def commit_relay_scripts(self):
+        """Real projects commit the relay scripts, so every lane worktree gets its own copy of relay-runtime.py and the rest."""
+        ignore = self.root / ".gitignore"
+        kept = [line for line in ignore.read_text().splitlines() if line not in appapi.RELAY_FILES]
+        ignore.write_text(chr(10).join(kept) + chr(10))
+        self.git("add", "-f", *appapi.RELAY_FILES, ".gitignore")
+        self.git("commit", "-qm", "Add the Agent Relay scripts")
 
     def set_test_command(self, command):
         (self.root / "relay.project.json").write_text(json.dumps({"testCommand": command}))
@@ -152,6 +160,30 @@ class ParallelRun(unittest.TestCase):
         self.assertIn("Built by: codex (gpt-test)", prompts)        # the reviewer is told who built each task, and records it in the review log
         self.assertIn("Built by: copilot (copilot-test)", prompts)
         self.assertIn("Start that sentence with 'Built by <who>.'", prompts)
+
+    def test_a_project_that_commits_its_relay_scripts_works_the_same(self):
+        self.commit_relay_scripts()
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        subjects = self.subjects()
+        self.assertIn("relay: merge T01 (codex build)", subjects)
+        self.assertIn("relay: merge T02 (copilot build)", subjects)
+        self.assertEqual(self.roles().count("reviewer"), 2)
+        self.assertIn("[x] AUTO", self.task_text("T01"))
+        self.assertIn("[x] AUTO", self.task_text("T02"))
+        self.assertEqual(self.lane_leftovers(), ([], []))
+        # the lane's own runtime stayed out of it: the project's runtime recorded each build once, with the model the tool reported
+        state = json.loads((self.root / ".relay/state.json").read_text())
+        builders = sorted((c["provider"], c.get("reportedModel") or c["requestedModel"]) for c in state["calls"] if c["role"] == "builder")
+        self.assertEqual(builders, [("codex", "gpt-test"), ("copilot", "copilot-test")])
+
+    def test_the_lane_prompt_names_its_own_branch_and_does_not_ask_for_the_whole_suite(self):
+        self.run_relay()
+        for tool, ident in (("codex", "T01"), ("copilot", "T02")):
+            prompt = (self.mock / ("builder-prompt-" + tool + ".txt")).read_text()
+            self.assertIn("current git branch (agent-run-lane-%s)" % ident, prompt)
+            self.assertNotIn("Run that command yourself before you finish", prompt)
+            self.assertIn("do NOT run the whole suite", prompt)
 
     def test_the_lanes_run_in_their_own_worktrees_not_the_project_folder(self):
         self.run_relay()

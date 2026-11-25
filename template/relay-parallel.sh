@@ -83,11 +83,15 @@ par_lane_build() {  # par_lane_build <id> <provider> <dir> <main log>: runs in a
   log() { echo "[$(date '+%F %T')] [$id] $*" | tee -a "$main_log"; }
   limit_sleep() { exit 75; }          # a builder out of usage ends its lane; the round goes on without it
   fallback_build() { return 1; }      # never borrow another lane's builder
+  # the project's checkpoint runtime belongs to the main tree (its own state, one task at a time): a lane's checkout may hold a copy of the script, which must stay inert.
+  # The relay records the lane's build in the real runtime when it merges the lane.
+  relay_runtime() { return 0; }
   if command -v cygpath >/dev/null; then
     common=$(cygpath -w "$(cd "$(git rev-parse --git-common-dir)" && pwd)"); own=$(cygpath -w "$(git rev-parse --absolute-git-dir)")
     CODEX_ARGS=(--sandbox workspace-write --add-dir "$common"); [ "$own" = "$common" ] || CODEX_ARGS+=(--add-dir "$own")
   fi
-  prompt=${BUILD_PROMPT//"Run that command yourself before you finish and fix every failure."/"Other builders work at the same time on other tasks, so do NOT run the whole suite: run only the checks for the gates you changed (the relay runs the full suite after merging your work) and fix every failure."}
+  prompt=${BUILD_PROMPT//"current git branch ($BRANCH)"/"current git branch ($(par_branch "$id"))"}
+  prompt=${prompt//"Run that command yourself before you finish and fix every failure."/"Other builders work at the same time on other tasks, so do NOT run the whole suite: run only the checks for the gates you changed (the relay runs the full suite after merging your work) and fix every failure."}
   ROLE_NOW=builder; : > relay-builder.identity; rm -f "$COMMIT_FILE"; LAST_OUT=""
   if [ "$prov" = codex ]; then codex_pick; codex_run "$prompt"; rc=$?
   else tool_run "$prov" "$prompt" auto; rc=$?; [ "$rc" -ne 2 ] || rc=75; fi
