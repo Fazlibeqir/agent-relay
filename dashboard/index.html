@@ -879,7 +879,7 @@ function render(s){
   if(ph){const live=ph.kind!=="STOPPED";
     const el=(Date.now()/1000-off)-ph.since, rem=ph.estimate-el, frac=ph.estimate?el/ph.estimate:0;
     n=`<div class="big">${esc(ph.label)}</div><div class="mute">${esc(s.task||"")}</div>`;
-    if(live){n+=bar(frac*100)+`<div class="row"><span>elapsed ${fmt(el)}</span><span>${rem>=0?"about "+fmt(rem)+" left":"over estimate by "+fmt(rem)}${ph.retryAt?" · next retry "+new Date(ph.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</span></div>`;
+    if(live){n+=(ph.estimate?bar(frac*100):"")+`<div class="row"><span>elapsed ${fmt(el)}</span><span>${!ph.estimate?"":rem>=0?"about "+fmt(rem)+" left":"over estimate by "+fmt(rem)}${ph.retryAt?" · next retry "+new Date(ph.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</span></div>`;
       if(ph.kind==="BUILD"&&(s.lanes||[]).length>1)n+=`<div class="mute">Building in parallel: ${s.lanes.map(l=>esc(l.task)+" · "+esc(l.provider)).join(", ")}</div>`;
       if(s.roundDoneIn!=null)n+=`<div class="mute">round done in about ${fmt(s.roundDoneIn-(Date.now()/1000-off-s.now))}</div>`;
       if(ph.kind==="SUITE"&&s.testCheck.count)n+=`<div class="mute">check ${s.testCheck.count}: ${esc(s.testCheck.label)}</div>`}
