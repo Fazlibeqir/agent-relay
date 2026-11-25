@@ -303,7 +303,11 @@ def build_state(relay, providers):
     run = ev[start_idx:]
     est = estimates(markers)
     alive = (relay / ".relay.lock").exists()
-    cur = markers[-1] if markers else None
+    last_marker = markers[-1] if markers else None
+    run_start = run[0]["t"] if run else 0
+    # While the relay is running, only a phase marker logged since its latest start counts. An older run's marker would show
+    # that run's phase with days of "elapsed" (a resumed test run writes no marker of its own).
+    cur = last_marker if last_marker and (not alive or last_marker["t"] >= run_start) else None
     state = {"now": now, "alive": alive, "relay": str(relay), "branch": "", "task": "", "round": "", "phase": None, "estimates": est}
     for e in run:
         m = re.match(r"relay started on branch (\S+)", e["msg"])
@@ -327,6 +331,8 @@ def build_state(relay, providers):
                               "remaining": secs - (now - cur["t"]), "retryAt": cur["t"] + secs}
         elif not alive:
             state["phase"] = {"kind": "STOPPED", "label": "Relay stopped", "since": cur["t"], "elapsed": now - cur["t"], "estimate": 0, "remaining": 0}
+    elif alive and run:
+        state["phase"] = {"kind": "START", "label": "Starting", "since": run_start, "elapsed": now - run_start, "estimate": 0, "remaining": 0}
     order = ["DISPATCH", "BUILD", "SUITE", "REVIEW"]
     if state["phase"] and state["phase"]["kind"] in order:
         i = order.index(state["phase"]["kind"]); rem = max(0, state["phase"]["remaining"]); nxt = []
