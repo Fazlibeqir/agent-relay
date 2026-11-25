@@ -53,6 +53,9 @@ log() { echo "[$(date '+%F %T')] $*" | tee -a "$LOG"; }
 # shared: usage-limit waits, settings, run/tool_run, fallback builders, builder_run, claude_run (dispatcher/reviewer), codex_pick
 # shellcheck source=relay-lib.sh
 source "$(dirname "$0")/relay-lib.sh"
+# parallel mode (settings: "mode": "parallel"); the file is optional, a project without it always runs one task at a time
+# shellcheck source=relay-parallel.sh
+[ -f "$(dirname "$0")/relay-parallel.sh" ] && source "$(dirname "$0")/relay-parallel.sh"
 
 TEST_CMD="${TEST_CMD:-$(python -c "import json;print(json.load(open('relay.project.json')).get('testCommand',''))" 2>/dev/null)}"
 
@@ -183,6 +186,81 @@ Your final message: what you built, the files in $COMMIT_FILE, and the test resu
 For a visual workflow, tell the reviewer how to run the project and capture the final behavior from the tested commit.
 $HOUSE_RULES"
 
+# verify_round: run the project's tests for the current task; 0 when they pass and the review may start. Uses: task, TEST_CMD, TEST_LOG. Sets: suite, test_rc.
+verify_round() {
+  if [ -n "$TEST_CMD" ]; then
+    timeout --kill-after=60 3600 bash -c "$TEST_CMD" > "$TEST_LOG" 2>&1; test_rc=$?
+    if [ "$test_rc" -eq 0 ]; then suite="PASS"; else suite="FAIL (exit $test_rc)"; fi
+  else suite="not run (no test command in relay.project.json)"; : > "$TEST_LOG"; fi
+  if [ "${test_rc:-1}" -ne 0 ]; then
+    relay_runtime event blocked "Tests did not pass for $task; evidence cannot close automatic gates"
+    log "tests did not pass; task retained for a fix, without accepting a review"
+    return 1
+  fi
+  relay_runtime checkpoint reviewing "$task" "$TEST_CMD" 0 || return 1
+}
+
+# review_round: the reviewer judges the round ($before..$after) and updates the task file; 0 when the review was accepted. Uses: round, task, task_path, before, after, suite, builder_said.
+review_round() {
+  dirty=$(git status --porcelain | grep -vE "relay|CURRENT_TASK|REVIEW.md|PLAYTEST_QUEUE|^\?\? \.relay" | head -n 20)
+  # who built this task and with which model: the runtime's call records (the model the tool reported), else the builder identity file
+  built_by=$(relay_runtime summary 2>/dev/null | tr -d '\r' | python -c '
+import json, sys
+try: s = json.load(sys.stdin)
+except ValueError: s = {}
+seen = []
+for c in s.get("calls", []):
+    if c.get("role") == "builder" and c.get("task") == s.get("task") and c.get("outcome") == "success":
+        m = c.get("reportedModel") or c.get("requestedModel")
+        e = "%s (%s)" % (c.get("provider"), m if m and m != "auto" else "model not reported")
+        if e not in seen: seen.append(e)
+print(", ".join(seen))' 2>/dev/null)
+  [ -n "$built_by" ] || built_by=$(awk -F'|' 'NF >= 2 { m = ($2 == "" || $2 == "auto") ? "model not reported" : $2; s = s (s ? ", " : "") $1 " (" m ")" } END { print s }' relay-builder.identity 2>/dev/null | tr -d '\r')
+  log "round $round — test command $suite; Claude reviewing"
+
+  task_reviews=$(( $(git log --format=%s | awk -v r="relay: loop state — review $task" -v d="relay: loop state — dispatch $task" \
+    '$0 == d { exit } $0 == r { n++ } END { print n + 0 }') + 1 ))
+  backup=$(mktemp 2>/dev/null || echo ".relay-task-backup"); cp "$task_path" "$backup" 2>/dev/null || : > "$backup"
+  claude_run reviewer "THIS ROUND: task '$task' (file $task_path) — review number $task_reviews for this task (limit $MAX_TASK_ROUNDS).
+Commits by the implementer: $before..$after ($(git rev-list --count "$before..$after") commits).
+Built by: ${built_by:-unknown}
+Test command ($TEST_CMD) on HEAD $(git rev-parse --short HEAD): $suite.
+Last test lines:
+$(tail -n 12 "$TEST_LOG")
+Uncommitted files the implementer left (should be none): ${dirty:-none}
+Implementer's last words:
+$builder_said
+
+You are the reviewer. Do not write application code. Read $TASK_FILE and inspect this round's commits (git log / git show over the range above).
+Never trust the implementer's claims: the test output above and $TEST_LOG are this run's evidence.
+You get ONE turn: do not start background commands, monitors, schedules or wake-ups, and do not finish until every file update below is done.
+Update the task file $task_path directly:
+  1. Tick '- [x]' only the AUTO gates whose named check passed in this run's evidence; untick AUTO gates whose check failed or is missing.
+     NEVER tick a gate whose text starts with HUMAN.
+  2. Rewrite its 'Status:' line as: 'Status: In progress | Completion: P% (a/N gates)' (P = ticked gates / all gates, rounded). When only HUMAN gates are open
+     use 'Status: Waiting for you | Completion: P% (a/N gates)'. Never write 'Done': only the person finishes a task.
+  3. Append to the end of the file, under a '## Review log' heading (create it if missing): 'Relay review <date> — commit <hash> — tests PASS/FAIL — gates a/N — <one sentence>'. Start that sentence with 'Built by <who>.' (the 'Built by' line above: the AI and its model).
+Then decide:
+  - Open AUTO gates remain: overwrite $REVIEW_FILE with a numbered list of concrete, verifiable issues (what to fix, or the next piece of the open gate).
+    Its first line is 'failed reviews: N'. Increment N ONLY for a FAILED round (tests red, no commit, a house rule broken, an earlier issue not fixed,
+    or a commit that changed nothing the gates need). A green, committed round with real progress keeps N unchanged.
+  - BLOCKED: if the implementer's message starts with 'BLOCKED:' and you agree no open AUTO gate can be advanced by code or tests that run here, or if N reaches 3,
+    append '<task id> — <name> — NEEDS OWNER: <reason>' to $QUEUE_FILE and delete $TASK_FILE and $REVIEW_FILE.
+  - Round limit: if this is review number $MAX_TASK_ROUNDS or more for this task and AUTO gates are still open, do the same with the reason 'still open after <n> rounds: <what is left>'.
+  - All AUTO gates pass and only HUMAN gates remain: append '<task id> — <name> — <exactly what the person should try and what to judge>' to $QUEUE_FILE and delete $TASK_FILE and $REVIEW_FILE.
+  - For a visual HUMAN gate, capture a fresh screenshot or clip from the tested build if the project's tooling supports it. Keep the capture under .relay/captures and attach it with:
+    python relay-runtime.py --build $(git rev-parse HEAD) artifact <task-id> <repository-relative-file> <short-note>
+    Attach only footage you verified came from that build. If you cannot capture it, give the person concrete playthrough steps in the queue entry.
+$HOUSE_RULES" || { relay_runtime restore; relay_runtime event blocked "Review failed; task restored for retry"; log "reviewer failed: keeping the current task for a retry"; return 1; }
+  relay_runtime guard "$TEST_CMD" || { log "review evidence rejected; task retained"; return 1; }
+  restored=$(python relay-pick.py guard "$task_path" "$backup" 2>/dev/null)
+  [ -z "$restored" ] || log "the reviewer ticked a HUMAN gate — put back: $(tr '\n' ' ' <<<"$restored")"
+  rm -f "$backup" 2>/dev/null
+  commit_state "review $task"
+  log "round $round — review done: $(git log -1 --format=%s)"
+  relay_runtime checkpoint idle "$task" "$TEST_CMD" || return 1
+}
+
 # ---------------------------------------------------------------- start
 cfg_load
 RESUME_PHASE=$(relay_runtime resume "$TEST_CMD") || { log "checkpoint recovery failed; nothing was discarded"; exit 1; }
@@ -205,6 +283,9 @@ while true; do
   if [ "$MAX_ROUNDS" -gt 0 ] && [ "$round" -gt "$MAX_ROUNDS" ]; then log "reached MAX_ROUNDS=$MAX_ROUNDS — stopping"; exit 0; fi
 
   if [ "$RESUME_PHASE" = idle ] && [ ! -s "$TASK_FILE" ]; then
+    cfg_load
+    # parallel mode: when it cannot run (fewer than two builders or tasks that can go together) this round falls through to one task at a time
+    if [ "${S_MODE:-serial}" = parallel ] && declare -F parallel_round >/dev/null && parallel_round; then continue; fi
     log "round $round — choosing next task from tasks/"
     python relay-pick.py pick . >/dev/null
   fi
@@ -263,62 +344,9 @@ $(python relay-pick.py req prompt | tr -d '\r')" || { relay_runtime event blocke
     *) after=$(git rev-parse HEAD);;
   esac
 
-  if [ "$RESUME_PHASE" != reviewing ]; then
-  if [ -n "$TEST_CMD" ]; then
-    timeout --kill-after=60 3600 bash -c "$TEST_CMD" > "$TEST_LOG" 2>&1; test_rc=$?
-    if [ "$test_rc" -eq 0 ]; then suite="PASS"; else suite="FAIL (exit $test_rc)"; fi
-  else suite="not run (no test command in relay.project.json)"; : > "$TEST_LOG"; fi
-  if [ "${test_rc:-1}" -ne 0 ]; then
-    relay_runtime event blocked "Tests did not pass for $task; evidence cannot close automatic gates"
-    log "tests did not pass; task retained for a fix, without accepting a review"
-    exit 1
-  fi
-  relay_runtime checkpoint reviewing "$task" "$TEST_CMD" 0 || exit 1
-  else suite=PASS; fi
+  if [ "$RESUME_PHASE" != reviewing ]; then verify_round || exit 1; else suite=PASS; fi
   RESUME_PHASE=idle
-  dirty=$(git status --porcelain | grep -vE "relay|CURRENT_TASK|REVIEW.md|PLAYTEST_QUEUE|^\?\? \.relay" | head -n 20)
-  log "round $round — test command $suite; Claude reviewing"
-
-  task_reviews=$(( $(git log --format=%s | awk -v r="relay: loop state — review $task" -v d="relay: loop state — dispatch $task" \
-    '$0 == d { exit } $0 == r { n++ } END { print n + 0 }') + 1 ))
-  backup=$(mktemp 2>/dev/null || echo ".relay-task-backup"); cp "$task_path" "$backup" 2>/dev/null || : > "$backup"
-  claude_run reviewer "THIS ROUND: task '$task' (file $task_path) — review number $task_reviews for this task (limit $MAX_TASK_ROUNDS).
-Commits by the implementer: $before..$after ($(git rev-list --count "$before..$after") commits).
-Test command ($TEST_CMD) on HEAD $(git rev-parse --short HEAD): $suite.
-Last test lines:
-$(tail -n 12 "$TEST_LOG")
-Uncommitted files the implementer left (should be none): ${dirty:-none}
-Implementer's last words:
-$builder_said
-
-You are the reviewer. Do not write application code. Read $TASK_FILE and inspect this round's commits (git log / git show over the range above).
-Never trust the implementer's claims: the test output above and $TEST_LOG are this run's evidence.
-You get ONE turn: do not start background commands, monitors, schedules or wake-ups, and do not finish until every file update below is done.
-Update the task file $task_path directly:
-  1. Tick '- [x]' only the AUTO gates whose named check passed in this run's evidence; untick AUTO gates whose check failed or is missing.
-     NEVER tick a gate whose text starts with HUMAN.
-  2. Rewrite its 'Status:' line as: 'Status: In progress | Completion: P% (a/N gates)' (P = ticked gates / all gates, rounded). When only HUMAN gates are open
-     use 'Status: Waiting for you | Completion: P% (a/N gates)'. Never write 'Done': only the person finishes a task.
-  3. Append to the end of the file, under a '## Review log' heading (create it if missing): 'Relay review <date> — commit <hash> — tests PASS/FAIL — gates a/N — <one sentence>'.
-Then decide:
-  - Open AUTO gates remain: overwrite $REVIEW_FILE with a numbered list of concrete, verifiable issues (what to fix, or the next piece of the open gate).
-    Its first line is 'failed reviews: N'. Increment N ONLY for a FAILED round (tests red, no commit, a house rule broken, an earlier issue not fixed,
-    or a commit that changed nothing the gates need). A green, committed round with real progress keeps N unchanged.
-  - BLOCKED: if the implementer's message starts with 'BLOCKED:' and you agree no open AUTO gate can be advanced by code or tests that run here, or if N reaches 3,
-    append '<task id> — <name> — NEEDS OWNER: <reason>' to $QUEUE_FILE and delete $TASK_FILE and $REVIEW_FILE.
-  - Round limit: if this is review number $MAX_TASK_ROUNDS or more for this task and AUTO gates are still open, do the same with the reason 'still open after <n> rounds: <what is left>'.
-  - All AUTO gates pass and only HUMAN gates remain: append '<task id> — <name> — <exactly what the person should try and what to judge>' to $QUEUE_FILE and delete $TASK_FILE and $REVIEW_FILE.
-  - For a visual HUMAN gate, capture a fresh screenshot or clip from the tested build if the project's tooling supports it. Keep the capture under .relay/captures and attach it with:
-    python relay-runtime.py --build $(git rev-parse HEAD) artifact <task-id> <repository-relative-file> <short-note>
-    Attach only footage you verified came from that build. If you cannot capture it, give the person concrete playthrough steps in the queue entry.
-$HOUSE_RULES" || { relay_runtime restore; relay_runtime event blocked "Review failed; task restored for retry"; log "reviewer failed: keeping the current task for a retry"; exit 1; }
-  relay_runtime guard "$TEST_CMD" || { log "review evidence rejected; task retained"; exit 1; }
-  restored=$(python relay-pick.py guard "$task_path" "$backup" 2>/dev/null)
-  [ -z "$restored" ] || log "the reviewer ticked a HUMAN gate — put back: $(tr '\n' ' ' <<<"$restored")"
-  rm -f "$backup" 2>/dev/null
-  commit_state "review $task"
-  log "round $round — review done: $(git log -1 --format=%s)"
-  relay_runtime checkpoint idle "$task" "$TEST_CMD" || exit 1
+  review_round || exit 1
 
   if [ "$after" = "$before" ] && ! grep -q '^BLOCKED:' <<<"$builder_said"; then
     stalls=$((stalls + 1)); log "no new commits from the builder this round ($stalls of $MAX_STALLS)"

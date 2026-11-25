@@ -11,7 +11,7 @@ HOME = pathlib.Path.home()
 IS_WIN = osops.IS_WIN
 NO_WINDOW = osops.NO_WINDOW
 APPDATA = (pathlib.Path(os.environ["APPDATA"]) if IS_WIN and os.environ.get("APPDATA") else pathlib.Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))) / "AgentRelay"
-RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-limits.py", "relay-runtime.py", "relay-pick.py", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
+RELAY_FILES = ("relay-files.sh", "relay-lib.sh", "relay-limits.py", "relay-runtime.py", "relay-pick.py", "relay-parallel.py", "relay-parallel.sh", "relay-awake.ps1", "relay-idle.sh", "relay-digest.py", "relay-claude-result.py", "relay-settings.py")
 GITIGNORE = ("relay.log", "relay-tests.log", "relay-live-*.log", "relay-live-*.start", "relay-console.log", "relay-console.err", ".relay.lock/",
              "relay.settings.json", "relay.providers.json", "relay-requests/", "relay-priority.txt", "OWNER-REQUESTS.md", "OWNER-REQUESTS.json", ".relay-settings-*.json", "relay-fallback-*.count", "relay-fallback-prompt.txt", "relay-idle-*.result",
              "relay-idle-*.stamp", "relay-idle-*.log", "relay-commit.txt", "relay-provider-*.limit", "relay-builder.identity", ".relay/", "CURRENT_TASK.md", "REVIEW.md", "OWNER-REVIEW-DIGEST.md")

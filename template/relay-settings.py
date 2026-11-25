@@ -23,6 +23,10 @@ DEFAULTS = {
     },
     "fallbackBuilders": ["copilot", "opencode"],
     "fallbackRoles": {"dispatcher": ["codex", "copilot", "opencode"], "reviewer": ["copilot", "opencode", "codex"]},
+    # serial = one task at a time. parallel = the dispatcher hands different tasks to different builders at the same time, each in its own worktree;
+    # merging, testing and review still go one at a time. Only relay-files.sh projects support it.
+    "mode": "serial",
+    "parallel": {"workers": ["codex", "copilot", "opencode"]},
     "fallbackMaxPerDay": 10,
     "models": {"copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5"},
     "idleChores": ["backend", "digest"],
@@ -83,6 +87,10 @@ def load(path):
         cfg["fallbackRoles"].update(fallback_roles)
     elif fallback_roles is not None:
         problems["errors"].append("fallbackRoles must be an object")
+    if "mode" in raw: cfg["mode"] = raw["mode"]
+    par = raw.get("parallel")
+    if isinstance(par, dict): cfg["parallel"] = {**cfg["parallel"], **par}
+    elif par is not None: problems["errors"].append("parallel must be an object")
     cfg["models"].update(raw.get("models") or {})
     for key in ("capabilities", "limits"):
         if key in raw:
@@ -126,6 +134,11 @@ def validate(cfg, problems):
             errs.append(f"fallbackRoles.{role} must list built-in providers")
         elif len(backups) != len(set(backups)):
             errs.append(f"fallbackRoles.{role} contains duplicate providers")
+    if cfg["mode"] not in ("serial", "parallel"): errs.append("mode must be serial or parallel")
+    workers = cfg["parallel"].get("workers")
+    if not isinstance(workers, list) or any(w not in ("codex", "copilot", "opencode") for w in workers):
+        errs.append("parallel.workers must list codex, copilot and opencode (Claude plans and reviews; it does not build in parallel)")
+    elif len(workers) != len(set(workers)): errs.append("parallel.workers contains duplicate providers")
     for k, v in cfg["models"].items():
         if not isinstance(v, str) or not SAFE.match(v): errs.append(f"models.{k} has characters that are not allowed")
     for provider, capabilities in cfg["capabilities"].items():
@@ -168,6 +181,8 @@ def shell(path):
     for role in ("dispatcher", "reviewer"):
         out.append(f"S_{role.upper()}_FALLBACKS='{' '.join(cfg['fallbackRoles'][role])}'")
     out.append(f"S_FALLBACK_MAX='{cfg['fallbackMaxPerDay']}'")
+    out.append(f"S_MODE='{cfg['mode']}'")
+    out.append(f"S_PARALLEL_WORKERS='{' '.join(cfg['parallel']['workers'])}'")
     out.append(f"S_COPILOT_MODEL='{cfg['models']['copilot']}'")
     out.append(f"S_OPENCODE_MODEL='{cfg['models']['opencode']}'")
     out.append(f"S_ADVISOR='{cfg['models']['advisor']}'")
