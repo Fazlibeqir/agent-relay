@@ -107,7 +107,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 
   <div id="tab-overview">
     <div class="card" style="margin-bottom:10px"><h2>Now</h2><div id="now">Loading project…</div><ul id="next" class="chips"></ul>
-      <div class="row2" style="margin-top:10px"><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button><button id="workspace-configure" hidden>Configure local runner</button></div>
+      <div class="row2" style="margin-top:10px"><button id="ov-start" hidden class="go">Start building</button><button id="ov-stop" hidden>Stop</button><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button><button id="workspace-configure" hidden>Configure local runner</button></div>
     </div>
     <details class="technical-details" open><summary>Technical details</summary>
       <div class="aigrid" id="providers"></div>
@@ -218,6 +218,7 @@ function headerButtons(){
   const p=WZ.project, pendingPlan=p.localWorkspace&&(!p.hasPlan||!p.testCommand);
   $("#btnstart").hidden=!(MODE==="dash"&&p.canStart&&!p.running);
   $("#btnstop").hidden=!(MODE==="dash"&&p.running);
+  $("#ov-start").hidden=$("#btnstart").hidden;$("#ov-stop").hidden=$("#btnstop").hidden;      // the same two buttons, also on the Overview tab
   $("#workspace-add").hidden=p.script!=="relay-files.sh";
   $("#workspace-plan").hidden=!pendingPlan;
   $("#workspace-configure").hidden=!p.canConfigureSavedTasks;
@@ -1060,6 +1061,8 @@ $("#workspace-configure").onclick=async()=>{
 };
 $("#btnstop").onclick=async()=>{if(!await RelayDialog.ask({heading:"Stop Relay?",detail:"Your work stays in the project.",action:"Stop Relay"}))return;
   const r=await post("/api/relay/stop");RelayDialog.show(r.ok?"Relay stopped.":(r.error||"Some processes are still running: "+(r.left||[]).join(", ")),!r.ok);setTimeout(tick,1500)};
+$("#ov-start").onclick=()=>$("#btnstart").onclick();
+$("#ov-stop").onclick=()=>$("#btnstop").onclick();
 $("#btnnew").onclick=async()=>{if(!await RelayDialog.ask({heading:"Switch projects?",detail:"Your tasks are saved. Any active Relay worker keeps running.",action:"Switch projects"}))return;
   await post("/api/project/forget");MODE="setup";STEP=2;JOB=null;FORM={name:"",idea:"",stack:"",root:FORM.root,host:"local",remote:false,prov:FORM.prov,model:"",effort:"",mode:"new",existPath:"",taskMode:"none",taskPath:"",taskText:"",goal:""};WZ=await get("/api/wizard");apply()};
 $("#btnquit").onclick=async()=>{if(await RelayDialog.ask({heading:"Close Agent Relay?",detail:"Any active Relay worker keeps running.",action:"Close app"})){await post("/api/quit");document.body.innerHTML='<main><div class="card">Agent Relay has closed. You can close this tab.</div></main>'}};
