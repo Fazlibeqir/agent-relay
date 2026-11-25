@@ -42,8 +42,7 @@ par_workers() {  # the builders that can take a lane now: installed, not waiting
   for w in $S_PARALLEL_WORKERS; do
     case "$w" in
       codex) [ -n "${CODEX_BIN:-}" ] || continue;;
-      copilot) { [ -n "${COPILOT_BIN:-}" ] && [ -x "$COPILOT_BIN" ]; } || continue
-        case "${COPILOT_MODEL:-$S_COPILOT_MODEL}" in auto|"") log "parallel: copilot skipped, it needs a named model (AIs & settings, backup models) so a review can tell who built the work" >&2; continue;; esac;;
+      copilot) { [ -n "${COPILOT_BIN:-}" ] && [ -x "$COPILOT_BIN" ]; } || continue;;
       opencode) command -v "${OPENCODE_BIN:-opencode}" >/dev/null 2>&1 || continue;;
       *) continue;;
     esac
@@ -145,6 +144,9 @@ par_integrate() {  # par_integrate <id> <provider> <dir> <branch> <rc>: merge, t
   local bin model call=""
   case "$prov" in codex) bin=${CODEX_BIN:-codex};; copilot) bin=${COPILOT_BIN:-copilot};; *) bin=${OPENCODE_BIN:-opencode};; esac
   model=$(awk -F'|' -v p="$prov" '$1 == p { m = $2 } END { print m }' "$dir/relay-builder.identity" 2>/dev/null | tr -d '')
+  # Copilot offers only "auto" on many accounts (it picks the model itself and does not say which). That is recorded under its own name, not as an unknown model:
+  # the reviewer (a different provider) can still tell it did not build the work, and the dashboard shows it as chosen automatically.
+  if [ "$prov" = copilot ] && { [ -z "$model" ] || [ "$model" = auto ]; }; then model=copilot-auto; fi
   if [ -f relay-runtime.py ]; then
     call=$(RELAY_ACCESS_CLI="$(relay_cli_path "$bin")" relay_runtime begin builder "$prov" "${model:-auto}" "relay-live-$prov.log" | tr -d '')       || { par_return "$id"; par_failed "$id" "the routing policy refused the $prov build"; return 1; }
   fi

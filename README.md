@@ -131,7 +131,7 @@ required to be a different model from the one that built the task.
 - Only builds overlap. The full test suite, the merge and the review run one at a time (the tests share ports and user folders), so the gain is the build time, not a multiple of the whole round.
 - A task that depends on an unfinished task (`Depends on T10` in its file) is never planned with it. Two tasks that edit the same files are the dispatcher's call; if their merge conflicts the second one is
   redone on the new base next round. If the project tests fail after a merge the merge is undone; a task that fails twice is parked for you.
-- A builder that runs out of usage ends its lane and the round goes on without it. Copilot needs a named model (AIs & settings, backup models) so a review can tell who built the work.
+- A builder that runs out of usage ends its lane and the round goes on without it. Copilot is used with its automatic model choice (most accounts offer no other) and is shown as "chosen automatically by Copilot"; its builds are reviewed by a different provider.
 - If fewer than two builders are available, or no two tasks can go together, the round runs one task the normal way. Switching modes applies from the next round.
 - Each task shows who built it and with which model on the Tasks tab, and the reviewer records it in the task's review log ("Built by codex (gpt-6.1-sol).").
 - Parallel mode is for projects that use the standard task-file runner (`relay-files.sh`); a project with its own `relay.sh` keeps working as before. After updating Agent Relay, press *Update Relay* on a project to install the parallel scripts.

@@ -923,7 +923,7 @@ function refreshNotificationLabel(){
 }
 refreshNotificationLabel();
 let WORK={};
-function whoOf(c){const m=c.reportedModel||c.requestedModel;return esc(c.provider)+" ("+(m&&m!=="auto"?esc(String(m).replace(/^opencode\//,"")):"model not reported")+")"}
+function whoOf(c){const m=c.reportedModel||c.requestedModel;return esc(c.provider)+" ("+(m==="copilot-auto"?"chosen automatically":m&&m!=="auto"?esc(String(m).replace(/^opencode\//,"")):"model not reported")+")"}
 function workLine(id){const w=WORK[id];if(!w||!(w.builder||w.reviewer))return"";
   return `<div class="small mute">${[w.builder?"Built by "+whoOf(w.builder):"",w.reviewer?"Reviewed by "+whoOf(w.reviewer):""].filter(Boolean).join(" · ")}</div>`}
 function drawMode(mode,lanes){
