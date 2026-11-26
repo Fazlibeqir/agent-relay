@@ -878,11 +878,16 @@ function render(s){
   let n="";
   if(ph){const live=ph.kind!=="STOPPED";
     const el=(Date.now()/1000-off)-ph.since, rem=ph.estimate-el, frac=ph.estimate?el/ph.estimate:0;
+    const pct=Math.min(frac*100,94);      // a phase that overruns never shows as full: the bar is not a promise
+    const leftText=!ph.estimate?"":rem<0?"taking longer than usual (typically "+fmt(ph.estimate)+")"
+      :ph.low!=null&&ph.high!=null&&ph.high-ph.low>0.25*ph.estimate&&ph.high-el>0?"about "+fmt(Math.max(ph.low-el,0))+" to "+fmt(ph.high-el)+" left":"about "+fmt(rem)+" left";
     n=`<div class="big">${esc(ph.label)}</div><div class="mute">${esc(s.task||"")}</div>`;
-    if(live){n+=(ph.estimate?bar(frac*100):"")+`<div class="row"><span>elapsed ${fmt(el)}</span><span>${!ph.estimate?"":rem>=0?"about "+fmt(rem)+" left":"over estimate by "+fmt(rem)}${ph.retryAt?" · next retry "+new Date(ph.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</span></div>`;
+    if(live){n+=(ph.estimate?bar(pct):"")+`<div class="row"><span>elapsed ${fmt(el)}</span><span>${leftText}${ph.retryAt?" · next retry "+new Date(ph.retryAt*1000).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):""}</span></div>`;
       if(ph.kind==="BUILD"&&(s.lanes||[]).length>1)n+=`<div class="mute">Building in parallel: ${s.lanes.map(l=>esc(l.task)+" · "+esc(l.provider)).join(", ")}</div>`;
-      if(s.roundDoneIn!=null)n+=`<div class="mute">round done in about ${fmt(s.roundDoneIn-(Date.now()/1000-off-s.now))}</div>`;
-      if(ph.kind==="SUITE"&&s.testCheck.count)n+=`<div class="mute">check ${s.testCheck.count}: ${esc(s.testCheck.label)}</div>`}
+      if(s.roundDoneIn!=null)n+=`<div class="mute">round done in about ${fmt(s.roundDoneIn-(Date.now()/1000-off-s.now))}${s.lanesLeft?" (then "+s.lanesLeft+" more "+(s.lanesLeft>1?"lanes":"lane")+" to test and review)":""}</div>`;
+      if(ph.quiet)n+=`<div class="warnc">No test output for ${fmt(ph.quiet)}. A test may be stuck${ph.checks&&ph.checks.label?" at "+esc(ph.checks.label):""}.</div>`;
+      if(ph.checks&&ph.checks.done)n+=`<div class="mute">check ${ph.checks.done}${ph.checks.total?" of about "+ph.checks.total:""}: ${esc(ph.checks.label||"")}</div>`;
+      else if(ph.kind==="SUITE"&&s.testCheck.count)n+=`<div class="mute">check ${s.testCheck.count}: ${esc(s.testCheck.label)}</div>`}
   }else n=s.alive?"starting…":"The relay is not running. Press Start.";
   if(WZ.project.localWorkspace&&(!WZ.project.hasPlan||!WZ.project.testCommand)){
     n='<div class="big">Your task list is ready</div><div class="mute">Add work in your own words. Use Plan with AI when you’re ready to prepare the build.</div>';

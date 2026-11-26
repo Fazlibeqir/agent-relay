@@ -14,12 +14,12 @@ HERE = pathlib.Path(__file__).parent
 import sys
 sys.path.insert(0, str(HERE))
 import appapi
+import phases
 import copilot_usage as copilot_quota
 import phone
 import reviewmedia
-DEFAULTS = {"BASELINE": 600, "DISPATCH": 360, "BUILD": 900, "SUITE": 600, "REVIEW": 240}
-PAIRS = {("BASELINE", "BASELINE_OK"): "BASELINE", ("DISPATCH", "BUILD"): "DISPATCH", ("BUILD", "SUITE"): "BUILD",
-         ("SUITE", "REVIEW"): "SUITE", ("REVIEW", "ROUND_DONE"): "REVIEW"}
+DEFAULTS = {"BASELINE": 600, "DISPATCH": 360, "BUILD": 900, "SUITE": 600, "REVIEW": 240, "MERGE": 60}
+CHECKS_STORE = None      # where the sizes of past test runs are kept (default: phase-checks.json in the app's data folder); a test points it at a temporary file
 RED = re.compile(r"baseline tests FAIL|suite (FAIL|failed)|graphics FAIL|timed out|exited with rc|usage limit|dispatcher failed|"
                  r"dispatcher wrote no task|no new commits|stalled|uncommitted changes|refused to commit|out of usage|known timing flake", re.I)
 LOG_LINE = re.compile(r"^\[(20\d\d-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$")
@@ -27,6 +27,7 @@ LOG_LINE = re.compile(r"^\[(20\d\d-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$")
 
 def kind_of(m):
     for pat, k in ((r"^running baseline test suite", "BASELINE"), (r"^baseline tests pass", "BASELINE_OK"), (r"^baseline tests FAIL", "STOPPED"),
+                   (r"all builders done after \d+s", "MERGE"),
                    (r"choosing next task|^role dispatcher running|parallel mode: the dispatcher plans", "DISPATCH"), (r"(Codex|builder) building|builds in its own worktree", "BUILD"),
                    (r"(made|merged) \d+ commit\(s\)[^;]*; running the full suite", "SUITE"), (r"Claude reviewing|reviewing", "REVIEW"),
                    (r"review done", "ROUND_DONE"), (r"^no task the agents can advance", "IDLE"), (r"hit a usage limit", "LIMIT"),
@@ -285,23 +286,16 @@ def parse_events(relay):
     return ev
 
 
-def estimates(markers):
-    samples = {k: [] for k in DEFAULTS}
-    for a, b in zip(markers, markers[1:]):
-        k = PAIRS.get((a["kind"], b["kind"]))
-        if k and b["t"] - a["t"] > 5: samples[k].append(b["t"] - a["t"])
-    return {k: (statistics.median(samples[k][-5:]) if samples[k] else DEFAULTS[k]) for k in DEFAULTS}
-
-
 def build_state(relay, providers):
     if relay is None:
         return {"noProject": True, "now": time.time(), "providers": [], "alive": False}
     now = time.time()
-    ev = parse_events(relay)
+    ev = parse_events(relay)      # the recent lines: the current run, usage limits, who runs which role
     markers = [dict(e, kind=kind_of(e["msg"])) for e in ev if kind_of(e["msg"])]
     start_idx = max([i for i, e in enumerate(ev) if e["msg"].startswith("relay started")] or [0])
     run = ev[start_idx:]
-    est = estimates(markers)
+    obs = phases.observations(phases.history(relay) or ev, kind_of)      # estimates come from the whole log, not from its last 1.5 MB
+    est, spread = phases.estimates(obs, DEFAULTS)
     alive = (relay / ".relay.lock").exists()
     last_marker = markers[-1] if markers else None
     run_start = run[0]["t"] if run else 0
@@ -324,13 +318,31 @@ def build_state(relay, providers):
     state["lanes"] = lanes
     state["mode"] = read_settings(relay).get("mode", "serial")
     pm = {"BASELINE": ("Baseline test suite", "BASELINE"), "DISPATCH": ("Choosing the next task", "DISPATCH"), "BUILD": ("Building", "BUILD"),
-          "SUITE": ("Full test suite", "SUITE"), "REVIEW": ("Reviewing", "REVIEW")}
+          "MERGE": ("Merging the builders' work", "MERGE"), "SUITE": ("Full test suite", "SUITE"), "REVIEW": ("Reviewing", "REVIEW")}
     if cur:
         k = cur["kind"]
         if k in pm and alive:
             label, ek = pm[k]
-            elapsed = now - cur["t"]
-            state["phase"] = {"kind": k, "label": label, "since": cur["t"], "elapsed": elapsed, "estimate": est[ek], "remaining": est[ek] - elapsed}
+            since = cur["t"]
+            if k in ("BASELINE", "SUITE"):      # a suite rerun after the known flake starts its own clock; the first, failed run is not part of this one
+                since = max([since] + [e["t"] for e in run if e["t"] >= since and phases.FLAKE in e["msg"]])
+            elapsed = now - since
+            expected, sp = est[ek], spread.get(ek)
+            if k == "BUILD":
+                m = phases.SERIAL_BUILDER.search(cur["msg"])
+                b, bsp = phases.build_estimate(obs, est, m.group(1).lower() if m else None, [l["provider"] for l in lanes] if len(lanes) > 1 else None)
+                if b: expected, sp = b, bsp
+            remaining, basis, checks, quiet = expected - elapsed, "history", None, 0
+            if k in ("BASELINE", "SUITE"):
+                done, last_check = phases.count_checks(relay, since)
+                total = phases.note_checks(CHECKS_STORE or appapi.APPDATA / "phase-checks.json", relay, int(since), done) if done > 0 else None
+                checks = {"done": done, "total": total, "label": last_check}
+                quiet = phases.quiet_seconds(relay, since, now)
+            state["phase"] = {"kind": k, "label": label, "since": since, "elapsed": elapsed, "estimate": expected, "remaining": remaining, "basis": basis,
+                              "samples": sp["n"] if sp else 0}
+            if sp and sp["n"] >= 3: state["phase"]["low"], state["phase"]["high"] = sp["low"], sp["high"]
+            if checks: state["phase"]["checks"] = checks
+            if quiet >= phases.QUIET_AFTER: state["phase"]["quiet"] = quiet
         elif k == "LIMIT" and alive:
             m = re.search(r"sleeping (\d+)s(?: \((?:until|retry) about (\d\d:\d\d)\))?", cur["msg"])
             secs = int(m.group(1)) if m else 1800
@@ -340,13 +352,30 @@ def build_state(relay, providers):
             state["phase"] = {"kind": "STOPPED", "label": "Relay stopped", "since": cur["t"], "elapsed": now - cur["t"], "estimate": 0, "remaining": 0}
     elif alive and run:
         state["phase"] = {"kind": "START", "label": "Starting", "since": run_start, "elapsed": now - run_start, "estimate": 0, "remaining": 0}
-    order = ["DISPATCH", "BUILD", "SUITE", "REVIEW"]
-    if state["phase"] and state["phase"]["kind"] in order:
-        i = order.index(state["phase"]["kind"]); rem = max(0, state["phase"]["remaining"]); nxt = []
+    ph = state["phase"]
+    # While the next round is being planned in parallel mode, expect a parallel round: two lanes (or as many as the last round had) whose build takes as long as the
+    # slowest lane did before. Otherwise a parallel round would be timed as one serial build, one suite and one review.
+    par_dispatch = state["mode"] == "parallel" and bool(ph) and ph["kind"] == "DISPATCH"
+    n_lanes = len(lanes) if len(lanes) > 1 else (2 if par_dispatch else 0)
+    order = ["DISPATCH", "BUILD"] + (["MERGE"] if n_lanes > 1 else []) + ["SUITE", "REVIEW"]
+    if ph and ph["kind"] in order:
+        round_est = dict(est)
+        if par_dispatch:
+            pb = phases.stats(obs.get("PBUILD", []))
+            if pb: round_est["BUILD"] = pb["median"]
+        i = order.index(ph["kind"]); rem = max(0, ph["remaining"]); nxt = []
         acc = rem
         for k in order[i + 1:]:
-            acc += est[k]; nxt.append({"label": {"BUILD": "Building", "SUITE": "Full test suite", "REVIEW": "Reviewing"}[k], "inSeconds": acc})
-        state["next"] = nxt; state["roundDoneIn"] = acc
+            acc += round_est[k]; nxt.append({"label": {"BUILD": "Building", "MERGE": "Merging", "SUITE": "Full test suite", "REVIEW": "Reviewing"}[k], "inSeconds": acc})
+        # A parallel round merges, tests and reviews its lanes one after the other, so the round is not over after one suite and one review.
+        lanes_after = 0
+        if n_lanes > 1:
+            if ph["kind"] in ("DISPATCH", "BUILD"): lanes_after = n_lanes - 1
+            else:
+                finished = sum(1 for e in run[plan_at:] if "review done" in e["msg"] or "did not make it in parallel mode" in e["msg"])
+                lanes_after = max(0, n_lanes - finished - 1)
+            acc += lanes_after * (est["MERGE"] + est["SUITE"] + est["REVIEW"])
+        state["next"] = nxt; state["roundDoneIn"] = acc; state["lanesLeft"] = lanes_after
     # what each agent runs on
     claude_model = ""; codex_model = ""
     for e in run:
