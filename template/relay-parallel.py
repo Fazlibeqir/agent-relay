@@ -1,6 +1,7 @@
 """Parallel mode helper for relay-files.sh: which open tasks can run at the same time, and a check of the dispatcher's plan. No AI, no tokens.
 
   python relay-parallel.py candidates [repo]            JSON: open tasks that could start now (every task they depend on is finished)
+  python relay-parallel.py count [repo]                 how many there are
   python relay-parallel.py prompt [repo] "<workers>"    the text sent to the dispatcher (candidates, builders, the reply format)
   python relay-parallel.py plan [repo] "<workers>"      read the dispatcher's reply on stdin; print one 'TASK|builder' line per valid lane (exit 1: fewer than two)
   python relay-parallel.py task [repo] T05              print the body of CURRENT_TASK.md for that task
@@ -102,6 +103,7 @@ def main(argv):
     cmd = argv[1] if len(argv) > 1 else ""
     repo = argv[2] if len(argv) > 2 else "."
     if cmd == "candidates": print(json.dumps(candidates(repo), indent=1))
+    elif cmd == "count": print(len(candidates(repo)))      # no AI call is worth making for fewer than two
     elif cmd == "prompt": print(prompt(repo, (argv[3] if len(argv) > 3 else "codex copilot opencode").split()))
     elif cmd == "plan":
         lanes = plan(repo, (argv[3] if len(argv) > 3 else "codex copilot opencode").split(), sys.stdin.read())

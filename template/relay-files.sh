@@ -212,7 +212,7 @@ seen = []
 for c in s.get("calls", []):
     if c.get("role") == "builder" and c.get("task") == s.get("task") and c.get("outcome") == "success":
         m = c.get("reportedModel") or c.get("requestedModel")
-        e = "%s (%s)" % (c.get("provider"), m if m and m != "auto" else "model not reported")
+        e = "%s (%s)" % (c.get("provider"), "chosen automatically by Copilot" if m == "copilot-auto" else m if m and m != "auto" else "model not reported")
         if e not in seen: seen.append(e)
 print(", ".join(seen))' 2>/dev/null)
   [ -n "$built_by" ] || built_by=$(awk -F'|' 'NF >= 2 { m = ($2 == "" || $2 == "auto") ? "model not reported" : $2; s = s (s ? ", " : "") $1 " (" m ")" } END { print s }' relay-builder.identity 2>/dev/null | tr -d '\r')

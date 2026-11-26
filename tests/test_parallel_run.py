@@ -177,6 +177,17 @@ class ParallelRun(unittest.TestCase):
         builders = sorted((c["provider"], c.get("reportedModel") or c["requestedModel"]) for c in state["calls"] if c["role"] == "builder")
         self.assertEqual(builders, [("codex", "gpt-test"), ("copilot", "copilot-test")])
 
+    def test_copilot_with_its_automatic_model_can_build_a_lane_and_is_recorded_as_such(self):
+        self.settings({"models": {"copilot": "auto", "opencode": "opencode/deepseek-v4.1-flash-free", "advisor": "claude-opus-5-5"}})
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("relay: merge T02 (copilot build)", self.subjects())
+        self.assertEqual(self.roles().count("reviewer"), 2)
+        state = json.loads((self.root / ".relay/state.json").read_text())
+        models = {c["provider"]: c.get("reportedModel") or c["requestedModel"] for c in state["calls"] if c["role"] == "builder"}
+        self.assertEqual(models["copilot"], "copilot-auto")
+        self.assertIn("Built by: copilot (chosen automatically by Copilot)", (self.mock / "review-prompts.txt").read_text())
+
     def test_the_lane_prompt_names_its_own_branch_and_does_not_ask_for_the_whole_suite(self):
         self.run_relay()
         for tool, ident in (("codex", "T01"), ("copilot", "T02")):
@@ -241,6 +252,15 @@ class ParallelRun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.roles().count("dispatcher"), 0)
         self.assertEqual(self.lane_leftovers(), ([], []))
+
+    def test_with_fewer_than_two_open_tasks_the_dispatcher_is_not_asked(self):
+        for name in ("T02", "T03"):
+            lines = ["# %s - Done" % name, "Status: Done", "- [x] AUTO: ok", "- [x] HUMAN: ok", ""]
+            (self.root / "tasks" / (name + ".md")).write_text(chr(10).join(lines))
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.roles().count("dispatcher"), 0)
+        self.assertIn("fewer than two tasks can start now", result.stdout)
 
     def test_one_available_builder_means_serial(self):
         self.settings({"parallel": {"workers": ["codex"]}})
