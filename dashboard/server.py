@@ -197,6 +197,19 @@ def read_settings(relay):
     except (OSError, ValueError): return {}
 
 
+# The keys the AIs & settings page shows and sends. Everything else in relay.settings.json (mode, parallel, copilotMonthlyPremium, ...) is set elsewhere.
+MANAGED_SETTINGS = ("roles", "fallbackBuilders", "fallbackRoles", "fallbackMaxPerDay", "idleChores", "capabilities", "limits", "models", "approvals")
+
+
+def keep_unmanaged_settings(relay, body):
+    """A save from the settings page replaced the whole file with the keys the page knows, so saving any setting silently turned parallel mode off
+    (and erased copilotMonthlyPremium). Keys the page does not manage are carried over from the file unless the body names them itself."""
+    if not isinstance(body, dict): return body
+    current = read_settings(relay)
+    if not isinstance(current, dict): return body
+    return {**body, **{k: v for k, v in current.items() if k not in MANAGED_SETTINGS and k not in body}}
+
+
 def backup_window(relay, calls):
     """How many backup-AI calls the relay made today against its own daily limit (the relay stops using a backup tool at that limit)."""
     cap = read_settings(relay).get("fallbackMaxPerDay", 10)
@@ -902,7 +915,7 @@ class Handler(BaseHTTPRequestHandler):
                 appapi.runtime_for(Handler.relay).approve_retry()
                 return reply({"ok": True})
             if path == "/api/settings":
-                ok, problems = save_settings(self.relay, body)
+                ok, problems = save_settings(self.relay, keep_unmanaged_settings(self.relay, body))
                 return reply({"saved": ok, **problems}, 200 if ok else 400)
             if path == "/api/settings/mode":
                 ok, problems = set_mode(self.relay, str(body.get("mode", "")))
