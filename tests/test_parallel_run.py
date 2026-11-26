@@ -253,6 +253,15 @@ class ParallelRun(unittest.TestCase):
         self.assertEqual(self.roles().count("dispatcher"), 0)
         self.assertEqual(self.lane_leftovers(), ([], []))
 
+    def test_with_fewer_than_two_open_tasks_the_dispatcher_is_not_asked(self):
+        for name in ("T02", "T03"):
+            lines = ["# %s - Done" % name, "Status: Done", "- [x] AUTO: ok", "- [x] HUMAN: ok", ""]
+            (self.root / "tasks" / (name + ".md")).write_text(chr(10).join(lines))
+        result = self.run_relay()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.roles().count("dispatcher"), 0)
+        self.assertIn("fewer than two tasks can start now", result.stdout)
+
     def test_one_available_builder_means_serial(self):
         self.settings({"parallel": {"workers": ["codex"]}})
         result = self.run_relay()

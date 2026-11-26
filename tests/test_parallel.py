@@ -59,6 +59,13 @@ class ParallelPlanning(unittest.TestCase):
         (self.repo / "PLAYTEST_QUEUE.md").write_text("T01 — Title — NEEDS OWNER: needs hardware\n", encoding="utf-8")
         self.assertEqual(self.ids(), ["T02"])
 
+    def test_count_is_the_number_of_candidates(self):
+        self.task("T01")
+        self.task("T02", OPEN, "Depends on T01.")
+        self.assertEqual(len(parallel.candidates(self.repo)), 1)
+        self.task("T03")
+        self.assertEqual(len(parallel.candidates(self.repo)), 2)
+
     def test_the_prompt_lists_candidates_and_allowed_builders(self):
         self.task("T01")
         self.task("T02", OPEN, "Depends on T01.")
