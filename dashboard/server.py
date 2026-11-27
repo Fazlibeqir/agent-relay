@@ -7,7 +7,7 @@ It reads relay.log (phase, task, rounds, limits), relay-live-<label>.log/.start 
 relay-fallback-<tool>.count (fallback builds today), PLAYTEST_QUEUE.md (what waits for the owner), and each provider's own
 usage source when it has one (Codex writes its rate limits into its session logs).
 """
-import customai, digest, existing, osops, planner, subprocess, threading, argparse, importlib.util, json, os, pathlib, re, statistics, tempfile, time, glob, datetime
+import council, customai, digest, existing, osops, planner, subprocess, threading, argparse, importlib.util, json, os, pathlib, re, statistics, tempfile, time, glob, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = pathlib.Path(__file__).parent
@@ -692,9 +692,45 @@ class Handler(BaseHTTPRequestHandler):
         try: self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError): pass
 
-    def _json_body(self):
-        try: return json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000)) or b"{}")
+    def _json_body(self, limit=20000):
+        try: return json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), limit)) or b"{}")
         except ValueError: return {}
+
+    def _council_settings(self):
+        try: return settings_module(self.relay).effective(str(self.relay / "relay.settings.json"))[0]
+        except Exception: return {}
+
+    def _council_post(self, path, body, need_project):
+        if path == "/api/council/stop": return council.stop(str(body.get("run", "")))
+        if Handler.relay is None and not (path == "/api/council/start" and body.get("kind") == "ux"):
+            return {"ok": False, "error": "Choose or create a project first."}
+        rel = Handler.relay
+        if path == "/api/council/start":
+            ux = body.get("kind") == "ux"
+            if not ux and body.get("source") == "project" and rel is None: return {"ok": False, "error": "Choose or create a project first."}
+            return council.start(rel, str(body.get("goal", ""))[:4000], str(body.get("source", "project")), str(body.get("drafter", "")), [str(x) for x in (body.get("reviewers") or [])][:6],
+                                 body.get("rounds", 2), models=body.get("models") if isinstance(body.get("models"), dict) else None, remote=str(body.get("remote", ""))[:300],
+                                 notes=str(body.get("notes", ""))[:60000], settings=self._council_settings(), kind="ux" if ux else "plan", app_dir=HERE if ux else None,
+                                 snapshot=str(body.get("snapshot", ""))[:200000])
+        if path == "/api/council/extend": return council.extend(rel, str(body.get("run", "")), settings=self._council_settings())
+        if path == "/api/council/save": return council.save_to_project(rel, str(body.get("run", "")))
+        return {"ok": False, "error": "unknown request"}
+
+    def _council_get(self, p):
+        from urllib.parse import parse_qs, urlsplit
+        u = urlsplit(p); q = parse_qs(u.query); one = lambda k: (q.get(k) or [""])[0]
+        if u.path == "/api/council/options":
+            cfg = self._council_settings(); ais = []
+            for pid, _found in council.usable_ais(self.relay):
+                m, e = council.pick_model(cfg, pid)
+                ais.append({"id": pid, "model": m or "its default", "effort": e})
+            dispatcher = ((cfg.get("roles") or {}).get("dispatcher") or {}).get("provider", "claude")
+            return {"ok": True, "ais": ais, "dispatcher": dispatcher, "project": self.relay.name if self.relay else "", "maxRounds": council.MAX_ROUNDS}
+        if self.relay is None: return {"ok": False, "error": "Choose or create a project first."}
+        if u.path == "/api/council/status": return council.status(self.relay, one("run"))
+        if u.path == "/api/council/doc": return council.read_doc(self.relay, one("run"), one("name"))
+        if u.path == "/api/council/runs": return council.list_runs(self.relay)
+        return {"ok": False, "error": "unknown request"}
 
     def _reviewer_model(self):
         try:
@@ -742,7 +778,7 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as exc:
                 self.close_connection = True
                 return self._send(400, json.dumps({"ok": False, "error": str(exc)}), "application/json")
-        body = self._json_body()
+        body = self._json_body(400000 if path == "/api/council/start" else 20000)   # the design review sends what the page measured about itself
         def reply(obj, code=200): self._send(code, json.dumps(obj), "application/json")
         def need_project():
             if Handler.relay is None: reply({"ok": False, "error": "Choose or create a project first."}, 400); return True
@@ -897,6 +933,8 @@ class Handler(BaseHTTPRequestHandler):
                 ch = normalize_task_recs(Handler.relay, self._reviewer_model())
                 r = planner.commit_plan(str(Handler.relay)); r["normalized"] = ch
                 return reply(r)
+            if path.startswith("/api/council/"):
+                return reply(self._council_post(path, body, need_project))
             if path == "/api/task/add":
                 if need_project(): return
                 if body.get("project") != str(Handler.relay):
@@ -978,6 +1016,8 @@ class Handler(BaseHTTPRequestHandler):
                 return reply(appapi.project_access(self.relay) if self.relay else {"supported": False})
             if p == "/api/notifications/status":
                 return reply({"native": Handler.on_notify is not None, "shownAt": Handler.native_notification_shown_at})
+            if p.startswith("/api/council/"): return reply(self._council_get(p))
+            if p == "/council.js": return self._send(200, (HERE / "council.js").read_bytes(), "text/javascript; charset=utf-8")
             if p == "/review.js": return self._send(200, (HERE / "review.js").read_bytes(), "text/javascript; charset=utf-8")
             if p in ("/dialogs.js", "/dialogs.css"):
                 mime = "text/javascript" if p.endswith(".js") else "text/css"

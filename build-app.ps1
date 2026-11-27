@@ -22,7 +22,7 @@ if (Test-Path dist\AgentRelay) { Remove-Item dist\AgentRelay -Recurse -Force }
 	--distpath dist --workpath .build\work --specpath .build `
 	--paths dashboard `
 	--add-data "$Kit\dashboard\index.html;." --add-data "$Kit\dashboard\providers.json;." --add-data "$Kit\dashboard\review.js;." `
-	--add-data "$Kit\dashboard\dialogs.js;." --add-data "$Kit\dashboard\dialogs.css;." --add-data "$Kit\dashboard\phone.html;." `
+	--add-data "$Kit\dashboard\dialogs.js;." --add-data "$Kit\dashboard\dialogs.css;." --add-data "$Kit\dashboard\phone.html;." --add-data "$Kit\dashboard\council.js;." `
 	--add-data "$bootstrapper;." `
 	--add-data "$Kit\template;template" --add-data "$Kit\relay.settings.example.json;." --add-data "$Kit\assets;assets" `
 	--hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai --hidden-import existing --hidden-import digest --hidden-import phone --hidden-import copilot_usage --hidden-import segno --collect-data tzdata `
