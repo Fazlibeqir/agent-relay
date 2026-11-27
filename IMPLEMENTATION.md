@@ -77,7 +77,7 @@ Project X's custom Notion runner uses its own update process.
 - [x] Resume the same local task when its branch, commit, task, test command, and file fingerprints match.
 - [x] Continue directly to saving and testing a completed builder result when the saved work and commit request still match.
 - [x] Keep edits in place when recovery is blocked. Use the existing explicit retry for changed or older checkpoints.
-- [x] Verify both outcomes through **Start building** in the packaged Windows app. The resumed build used mock providers, ran the test command once, and reached the human review queue without another builder call.
+- [x] Verify both outcomes through **Start relay** in the packaged Windows app. The resumed build used mock providers, ran the test command once, and reached the human review queue without another builder call.
 
 ## AI project access
 

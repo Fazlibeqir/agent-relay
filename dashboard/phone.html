@@ -51,7 +51,7 @@ li{margin:3px 0}
 <body>
 <header><img src="/assets/agent-relay.svg" alt=""><div class="t" id="title">Agent Relay</div><span class="pill" id="pill">…</span></header>
 <main id="main"><div class="card mute">Loading…</div></main>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 "use strict";
 const KEY = "agentRelayPhoneToken";
@@ -60,7 +60,7 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp
 let token = null, me = null, last = null, lastOk = 0, busy = false, timer = null;
 try { token = localStorage.getItem(KEY); } catch (e) {}
 
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
+function toast(msg) { const t = $("toast"); t.setAttribute("role", /could not|failed|error|not allowed|denied/i.test(msg) ? "alert" : "status"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 3500); }
 function fmt(sec) { sec = Math.max(0, Math.round(sec || 0)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60); return h ? h + "h " + m + "m" : m ? m + "m" : sec + "s"; }
 function bar(pct) { const v = Math.max(0, Math.min(100, pct || 0)); return `<div class="bar"><i class="${v >= 90 ? "b" : v >= 70 ? "w" : ""}" style="width:${v}%"></i></div>`; }
 
@@ -146,7 +146,7 @@ function render(s) {
       <b>${esc(r.action || r.type)}</b>${r.task ? ` <span class="mute">· ${esc(r.task)}</span>` : ""}
       ${r.why ? `<div class="small">${esc(r.why)}</div>` : ""}
       ${(r.files || []).length ? `<div class="files mute">${r.files.map(esc).join("<br>")}</div>` : ""}
-      ${can ? `<div class="btns"><button class="p" data-a="allow" data-id="${esc(r.id)}">Allow</button><button class="d" data-a="deny" data-id="${esc(r.id)}">Deny</button></div>` : ""}
+      ${can ? `<div class="btns"><button class="p" data-a="allow" data-id="${esc(r.id)}" aria-label="Allow: ${esc(r.action || r.type || "request")}${r.task ? " for " + esc(r.task) : ""}">Allow</button><button class="d" data-a="deny" data-id="${esc(r.id)}" aria-label="Deny: ${esc(r.action || r.type || "request")}${r.task ? " for " + esc(r.task) : ""}">Deny</button></div>` : ""}
     </div>`).join("") + `</div>`;
   }
 
