@@ -872,8 +872,9 @@ function render(s){
   off=Date.now()/1000-s.now;renderRequests(s.requests||[]);
   if(s.noProject){$("#status").textContent="NO PROJECT";$("#status").className="pill stop";return}
   const ph=s.phase;
-  $("#status").textContent=!s.alive?"STOPPED":ph&&ph.kind==="LIMIT"?"WAITING":"RUNNING";
-  $("#status").className="pill "+(!s.alive?"stop":ph&&ph.kind==="LIMIT"?"wait":"run");
+  const waiting=ph&&(ph.kind==="LIMIT"||ph.kind==="IDLE");
+  $("#status").textContent=!s.alive?"STOPPED":waiting?"WAITING":"RUNNING";
+  $("#status").className="pill "+(!s.alive?"stop":waiting?"wait":"run");
   $("#meta").textContent=WZ.project.name||"";
   let n="";
   if(ph){const live=ph.kind!=="STOPPED";
