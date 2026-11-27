@@ -93,7 +93,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 
 <div id="dash" hidden>
   <nav class="dashboard-nav" aria-label="Project">
-    <div class="dashboard-tabs"><button class="tab on" data-tab="overview" aria-current="page">Overview</button><button class="tab" data-tab="tasks">Tasks</button><button class="tab" data-tab="setup">AIs &amp; settings</button></div>
+    <div class="dashboard-tabs"><button class="tab on" data-tab="overview" aria-current="page">Overview</button><button class="tab" data-tab="plan">Plan</button><button class="tab" data-tab="tasks">Tasks</button><button class="tab" data-tab="setup">AIs &amp; settings</button></div>
     <div class="row2 dashboard-actions" role="group" aria-label="Project actions">
       <button id="btnnotify">Enable desktop notifications</button><button id="btnworktree">Create isolated workspace</button><button id="btnretry">Approve task retry</button>
     </div>
@@ -133,6 +133,8 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
     </div>
   </div>
 
+  <div id="tab-plan" hidden></div>
+
   <div id="tab-tasks" hidden></div>
 
   <div id="tab-setup" hidden>
@@ -153,6 +155,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 </main>
 <footer class="by" id="footby"></footer>
 <script src="/dialogs.js"></script>
+<script src="/council.js"></script>
 <script>
 const $=s=>document.querySelector(s);
 const fmt=s=>{s=Math.round(Math.abs(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return(h?h+":"+String(m).padStart(2,"0"):String(m))+":"+String(x).padStart(2,"0")};
@@ -662,8 +665,8 @@ function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart]
 /* ------------------------------------------------------------ dashboard */
 const TASK_PAGE_SIZES=[25,50,100];
 let TAB="overview",TT={filter:"todo",q:"",page:1,pageSize:TASK_PAGE_SIZES[0],showAI:false,openTask:false};
-function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>{const active=b.dataset.tab===n;b.classList.toggle("on",active);b.setAttribute("aria-current",active?"page":"false")});["overview","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
-  if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();if(!window.SETDIRTY)loadSettings();drawPhones()}}
+function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>{const active=b.dataset.tab===n;b.classList.toggle("on",active);b.setAttribute("aria-current",active?"page":"false")});["overview","plan","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
+  if(n==="plan")drawPlanTab();if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();if(!window.SETDIRTY)loadSettings();drawPhones()}}
 /* ------------------------------------------------------------ phones: pairing and paired devices (the phone page is /phone) */
 let PHONE_PAIR=null,PHONE_TIMER=null,PHONE_SEEN=0;
 function ago(t){if(!t)return"never";const s=Date.now()/1000-t;return s<90?"just now":s<5400?Math.round(s/60)+" min ago":s<129600?Math.round(s/3600)+" h ago":Math.round(s/86400)+" days ago"}
