@@ -13,7 +13,7 @@ async function drawPlanTab(){
   const aiName=id=>({claude:"Claude",codex:"Codex",copilot:"GitHub Copilot",opencode:"OpenCode"}[id]||id);
   const calls=planCalls(f.reviewers.length,f.rounds);
   box.innerHTML=`
-  <p class="mute" style="margin:0 0 12px">One AI writes the plan, the others read it and say what is missing, what could be better and what cannot be done yet. It repeats until they agree or the round limit is reached. <b>Nothing in your project is changed.</b></p>
+  <p class="mute" style="margin:0 0 12px">One AI writes the plan, the others read it and say what is missing, what could be better and what cannot be done yet. It repeats until they agree or the round limit is reached. <b>${ux?"Nothing in your project is changed.":"Nothing in your project is changed until you press Save."}</b></p>
   <div class="card">
     <div role="group" aria-label="What to do" class="row2" style="margin-bottom:10px">
       <button class="${ux?"":"pri"}" data-pk="plan" aria-pressed="${!ux}">Plan a project</button>
@@ -40,7 +40,7 @@ async function drawPlanTab(){
     </div><fieldset style="border:0;padding:0;margin:0"><legend class="l" style="padding:0;margin-top:0">${ux?"Use the app and review it":"Reviewing it"}</legend>
       ${o.ais.filter(a=>a.id!==f.drafter).map(a=>`<label class="opt"><input type="checkbox" data-rv="${esc(a.id)}" ${f.reviewers.includes(a.id)?"checked":""}> <span>${esc(aiName(a.id))} <span class="mute small">${esc(a.model)}</span></span></label>`).join("")||'<p class="mute small">No other AI is installed and signed in.</p>'}
     </fieldset></div>
-    <p class="mute small" role="note" style="margin:10px 0 0">About ${calls[0]} to ${calls[1]} AI calls, a few minutes each. They count against each AI's usage limit, Claude's included.</p>
+    <p class="mute small" role="note" style="margin:10px 0 0">About ${calls[0]===calls[1]?calls[0]:calls[0]+" to "+calls[1]} AI calls, a few minutes each. They count against each AI's usage limit, Claude's included.</p>
     <div class="row2" style="margin-top:10px"><button class="go" id="pl-start" ${noAI||!f.reviewers.length||PL.busy?"disabled":""}>${ux?"Start the design review":"Start planning"}</button><span id="pl-msg" class="small" role="status"></span></div>
   </div>
   <div id="pl-run"></div><div id="pl-past"></div>`;
@@ -51,6 +51,7 @@ async function drawPlanTab(){
   $("#pl-start").onclick=startPlan;
   drawRun();loadPast();
 }
+function whenText(ts){const d=new Date(ts*1000),n=new Date(),hm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});return d.toDateString()===n.toDateString()?"Today "+hm:d.toLocaleDateString([],{day:"numeric",month:"short"})+" "+hm}
 function planCalls(n,r){return[1+n,1+r*n+(r-1)]}
 function readPlanForm(){
   const f=PL.form;if(!$("#pl-goal"))return;
@@ -120,7 +121,7 @@ function drawRun(){
 async function loadPast(){
   const box=$("#pl-past");if(!box)return;let r;try{r=await get("/api/council/runs")}catch(e){return}
   if(!r.ok||!r.runs.length)return;
-  box.innerHTML=`<div class="card"><h2>Earlier runs</h2><ul>${r.runs.map(x=>`<li><button data-run="${esc(x.id)}" style="border:0;padding:2px 0;text-align:left;background:none;text-decoration:underline">${esc(new Date(x.started*1000).toLocaleString())}</button> <span class="mute small">${esc(x.state)}${x.goal?": "+esc(x.goal):""}</span></li>`).join("")}</ul></div>`;
+  box.innerHTML=`<div class="card"><h2>Earlier runs</h2><ul>${r.runs.map(x=>`<li><button data-run="${esc(x.id)}" style="border:0;padding:2px 0;text-align:left;background:none;text-decoration:underline">${esc(whenText(x.started))}</button> <span class="mute small">${esc(PL_STATE[x.state]||x.state)}${x.outcome?" - "+esc(x.outcome.slice(0,90)):x.goal?": "+esc(x.goal):""}</span></li>`).join("")}</ul></div>`;
   box.querySelectorAll("[data-run]").forEach(b=>b.onclick=async()=>{PL.runId=b.dataset.run;PL.doc=null;PL.docText="";await refreshRun();if(PL.run&&PL.run.state==="running")pollRun();$("#pl-run").scrollIntoView({block:"start"})});
 }
 
