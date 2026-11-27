@@ -9,7 +9,7 @@ K="$(pwd)"    # absolute paths: PyInstaller resolves relative ones from the spec
 rm -rf dist/AgentRelay
 .build/venv/bin/python -m PyInstaller --noconfirm --onedir --name AgentRelay --distpath dist --workpath .build/work --specpath .build \
   --paths dashboard --add-data "$K/dashboard/index.html:." --add-data "$K/dashboard/providers.json:." --add-data "$K/dashboard/review.js:." --add-data "$K/template:template" \
-  --add-data "$K/dashboard/dialogs.js:." --add-data "$K/dashboard/dialogs.css:." --add-data "$K/dashboard/phone.html:." \
+  --add-data "$K/dashboard/dialogs.js:." --add-data "$K/dashboard/dialogs.css:." --add-data "$K/dashboard/phone.html:." --add-data "$K/dashboard/council.js:." \
   --add-data "$K/relay.settings.example.json:." --add-data "$K/assets:assets" --hidden-import appapi --hidden-import osops --hidden-import planner --hidden-import customai \
   --hidden-import existing --hidden-import digest --hidden-import phone --hidden-import copilot_usage --hidden-import segno --collect-submodules webview --hidden-import webview.platforms.qt agent_relay_app.py
 # Mesa loads the host driver. Pair it with the host C++ runtime and GBM so it
