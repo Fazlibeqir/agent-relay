@@ -361,6 +361,11 @@ def build_state(relay, providers):
             secs = int(m.group(1)) if m else 1800
             state["phase"] = {"kind": "LIMIT", "label": "Waiting to retry available AI tools", "since": cur["t"], "elapsed": now - cur["t"], "estimate": secs,
                               "remaining": secs - (now - cur["t"]), "retryAt": cur["t"] + secs}
+        elif k == "IDLE" and alive:      # "no task the agents can advance right now ... Checking again in 1800s": asleep on purpose, not starting
+            m = re.search(r"Checking again in (\d+)s", cur["msg"])
+            secs = int(m.group(1)) if m else 1800
+            state["phase"] = {"kind": "IDLE", "label": "Nothing the agents can advance right now", "since": cur["t"], "elapsed": now - cur["t"], "estimate": secs,
+                              "remaining": secs - (now - cur["t"]), "retryAt": cur["t"] + secs}
         elif not alive:
             state["phase"] = {"kind": "STOPPED", "label": "Relay stopped", "since": cur["t"], "elapsed": now - cur["t"], "estimate": 0, "remaining": 0}
     elif alive and run:

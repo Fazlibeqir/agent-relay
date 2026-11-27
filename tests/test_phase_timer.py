@@ -41,6 +41,15 @@ class PhaseTimerTests(unittest.TestCase):
         self.assertEqual(phase["kind"], "BASELINE")
         self.assertTrue(400 < phase["elapsed"] < 600)
 
+    def test_a_relay_asleep_because_no_task_can_be_advanced_is_waiting_not_starting(self):
+        relay = self.relay([(2000, "relay started on branch agent-run"), (1500, "baseline tests pass"),
+                            (600, "no task the agents can advance right now — see PLAYTEST_QUEUE.md. Checking again in 1800s.")], running=True)
+        phase = self.state(relay)["phase"]
+        self.assertEqual(phase["kind"], "IDLE")
+        self.assertEqual(phase["estimate"], 1800)
+        self.assertTrue(1100 < phase["remaining"] < 1300)
+        self.assertAlmostEqual(phase["retryAt"], phase["since"] + 1800)
+
     def test_a_stopped_relay_still_reports_when_it_stopped(self):
         relay = self.relay([(600, "relay started on branch agent-run"), (500, "baseline tests FAIL")], running=False)
         phase = self.state(relay)["phase"]
