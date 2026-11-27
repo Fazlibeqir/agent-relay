@@ -1,9 +1,10 @@
+<html lang="en">
 <title>Agent Relay</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/dialogs.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' width='256' height='256'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0.2' y1='0' x2='0.8' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3ClinearGradient id='g2' x1='0.8' y1='0' x2='0.2' y2='1'%3E%3Cstop offset='0' stop-color='%2338bdf8'/%3E%3Cstop offset='1' stop-color='%234f6bf0'/%3E%3C/linearGradient%3E%3ClinearGradient id='g3' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23a5f3fc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z' fill='url(%23g1)'/%3E%3Cpath d='M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z' fill='url(%23g2)' opacity='0.92'/%3E%3Ccircle cx='128' cy='172' r='19' fill='url(%23g3)'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#667085;--line:#e3e6ea;--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00;--bar:#e6e9ee;--acc:#2f6fed}
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2128;--mute:#667085;--line:#e3e6ea;--ok:#1a7f4b;--bad:#c62828;--warn:#b26a00;--bar:#e6e9ee;--acc:#2f6fed;--btn-go:#1a7f4b;--btn-pri:#2a62d9;--btn-stop:#c62828;--btn-wait:#9a6700}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#161b22;--ink:#e6edf3;--mute:#8b949e;--line:#2a313a;--ok:#3fb950;--bad:#f85149;--warn:#d29922;--bar:#262d36;--acc:#5b8cff;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#0e1116;--card:#161b22;--ink:#e6edf3;--mute:#8b949e;--line:#2a313a;--ok:#3fb950;--bad:#f85149;--warn:#d29922;--bar:#262d36;--acc:#5b8cff;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,Segoe UI,sans-serif}
@@ -11,8 +12,8 @@ main{max-width:1000px;margin:0 auto;padding:16px;padding-block:18px}
 header{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-bottom:14px}
 h1{font-size:18px;margin:0}h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 8px;font-weight:600}
 h3{font-size:18px;margin:0 0 4px}.pill{padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;color:#fff}
-.run{background:var(--ok)}.stop{background:var(--bad)}.wait{background:var(--warn)}
-.mute{color:var(--mute)}.small{font-size:12px}.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.run{background:var(--btn-go)}.stop{background:var(--btn-stop)}.wait{background:var(--btn-wait)}
+.mute{color:var(--mute)}.small{font-size:12px}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
 .bar{height:8px;background:var(--bar);border-radius:4px;overflow:hidden;margin:6px 0}.bar>i{display:block;height:100%;background:var(--ok)}
 .bar.hi>i{background:var(--warn)}.bar.full>i{background:var(--bad)}
@@ -24,7 +25,7 @@ ul{list-style:none;margin:0;padding:0}li{padding:3px 0;border-bottom:1px solid v
 .bad{color:var(--bad)}.ok{color:var(--ok)}.warnc{color:var(--warn)}a{color:inherit}
 .prov{border-left:4px solid var(--c,#888)}
 button{font:inherit;padding:6px 14px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
-button:disabled{opacity:.5;cursor:default}.pri{background:var(--acc);color:#fff;border-color:var(--acc)}.go{background:var(--ok);color:#fff;border-color:var(--ok)}
+button:disabled{opacity:.5;cursor:default}.pri{background:var(--btn-pri);color:#fff;border-color:var(--btn-pri)}.go{background:var(--btn-go);color:#fff;border-color:var(--btn-go)}
 select,input,textarea{font:inherit;padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 textarea{width:100%;min-height:90px}label.l{display:block;margin:12px 0 4px;font-weight:600}
 .srow{display:grid;grid-template-columns:110px 130px 1fr 170px;gap:8px;align-items:center;padding:4px 0}
@@ -34,13 +35,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 @media(max-width:640px){.srow{grid-template-columns:1fr 1fr}}
 .stepper{display:flex;gap:4px;margin:0 0 14px;flex-wrap:wrap}
 .stepper div{flex:1;min-width:110px;padding:8px 10px;border-radius:8px;background:var(--bar);color:var(--mute);font-size:13px;cursor:default}
-.stepper div.cur{background:var(--acc);color:#fff;font-weight:600}.stepper div.done{background:var(--card);border:1px solid var(--ok);color:var(--ok)}
+.stepper div.cur{background:var(--btn-pri);color:#fff;font-weight:600}.stepper div.done{background:var(--card);border:1px solid var(--ok);color:var(--ok)}
 .tool{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--line)}.tool:last-child{border:0}.tool .nm{min-width:190px}
 code{font:12px ui-monospace,Consolas,monospace;background:var(--bar);padding:1px 5px;border-radius:4px}
 pre.doc{white-space:pre-wrap;background:var(--bar);padding:10px;border-radius:8px;max-height:340px;overflow:auto;font:12.5px/1.45 ui-monospace,Consolas,monospace}
 .drive{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin:6px 0;cursor:pointer}
 .drive.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}.drive .bar{flex:1;margin:0;min-width:80px}
-.tag{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--ok);color:#fff;margin-left:6px}
+.tag{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--btn-go);color:#fff;margin-left:6px}
 .nav{display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap}
 .opt{display:flex;gap:8px;align-items:flex-start;padding:6px 0}
 .dashboard-nav{display:flex;justify-content:space-between;align-items:end;gap:6px 12px;flex-wrap:wrap;margin:0 0 14px;border-bottom:1px solid var(--line)}
@@ -68,7 +69,7 @@ ul.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}ul.chips li{border:
 @keyframes rise{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}@keyframes go{0%{margin-left:-40%}100%{margin-left:100%}}
 .grid2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
 .btnlink{display:inline-block;padding:6px 14px;border-radius:7px;border:1px solid var(--line);text-decoration:none;color:var(--ink);background:var(--card);font-size:13px}.btnlink:hover{border-color:var(--acc)}
-.chip{border-radius:99px;padding:4px 12px;font-size:13px}.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}.chip b{margin-left:4px}
+.chip{border-radius:99px;padding:4px 12px;font-size:13px}.chip.on{background:var(--btn-pri);color:#fff;border-color:var(--btn-pri)}.chip b{margin-left:4px}
 .task-pagination{justify-content:space-between;margin:8px 0 12px}
 .task-pagination select{width:auto}
 .badge{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
@@ -82,8 +83,9 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
 <div id="splash"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="104" height="104"><defs><linearGradient id="s1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="s2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="s3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#s1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#s2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#s3)"/></svg><div class="n">AGENT RELAY</div><div class="s">Getting things ready…</div><div class="ld"><i></i></div><div class="by" id="splashby"></div></div>
 <main>
 <header><h1 style="display:flex;align-items:center;gap:8px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="28" height="28"><defs><linearGradient id="h1" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#3b82f6"/></linearGradient><linearGradient id="h2" x1="0.8" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#4f6bf0"/></linearGradient><linearGradient id="h3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#a5f3fc"/></linearGradient></defs><path d="M34,224 C10,148 54,58 128,24 C112,100 98,180 34,224 Z" fill="url(#h1)"/><path d="M222,224 C246,148 202,58 128,24 C144,100 158,180 222,224 Z" fill="url(#h2)" opacity="0.92"/><circle cx="128" cy="172" r="19" fill="url(#h3)"/></svg>Agent Relay</h1><span id="status" class="pill stop">…</span><span id="meta" class="mute"></span><span style="flex:1"></span>
-  <button id="btnnew" hidden>Switch project</button><button id="btnstart" hidden class="go">Start building</button><button id="btnstop" hidden>Stop</button><button id="btnquit" title="Close this app (a running relay keeps running)">Quit app</button><span id="clock" class="mute"></span></header>
+  <button id="btnnew" hidden>Switch project</button><button id="btnstart" hidden class="go">Start relay</button><button id="btnstop" hidden>Stop relay</button><button id="btnquit" title="Close this app (a running relay keeps running)">Quit app</button><span id="clock" class="mute"></span></header>
 
+<div id="live" class="sr" role="status" aria-live="polite"></div>
 <div id="setup" hidden>
   <div class="stepper" id="stepper"></div>
   <div id="step"></div>
@@ -110,7 +112,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
       <div id="modebox" class="row2" style="margin-top:10px" hidden><b class="small">Work mode</b>
         <button class="chip" id="mode-serial" data-mode="serial" aria-pressed="true" title="Build one task, test it, review it, then the next">One task at a time</button><button class="chip" id="mode-parallel" data-mode="parallel" aria-pressed="false" title="Several AIs build different tasks at the same time; the primary AI plans and reviews">In parallel</button>
         <span id="mode-note" class="mute small" role="status"></span></div>
-      <div class="row2" style="margin-top:10px"><button id="ov-start" hidden class="go">Start building</button><button id="ov-stop" hidden>Stop</button><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button><button id="workspace-configure" hidden>Configure local runner</button></div>
+      <div class="row2" style="margin-top:10px"><button id="ov-start" hidden class="go">Start relay</button><button id="ov-stop" hidden>Stop relay</button><button id="workspace-add" hidden>Add a task</button><button id="workspace-plan" hidden>Plan with AI</button><button id="workspace-configure" hidden>Configure local runner</button></div>
     </div>
     <details class="technical-details" open><summary>Technical details</summary>
       <div class="aigrid" id="providers"></div>
@@ -123,7 +125,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
     <div class="cols">
       <div class="card"><h2>Next in line</h2><div id="nexttasks" class="mute">loading…</div></div>
       <div class="card"><h2>Needs you</h2><div id="needsyou"><div class="needbig" id="needcount">–</div><div class="mute small" id="needlabel" style="margin:2px 0 8px">tasks waiting for your review</div>
-        <div id="queue" class="mute small"></div><div class="row2" style="margin-top:10px"><a href="/digest" class="btnlink" id="open-review">Review work</a><a href="#" id="needtasks" class="btnlink">See them in Tasks</a></div></div></div>
+        <div id="queue" class="mute small"></div><div class="row2" style="margin-top:10px"><a href="/digest" class="btnlink" id="open-review">Review work</a><a href="#" id="needtasks" class="btnlink">View task list</a></div></div></div>
     </div>
     <div class="cols" style="margin-top:14px">
       <div class="card"><h2>Done this run</h2><ul id="done"></ul></div>
@@ -145,7 +147,7 @@ table.tt{width:100%;border-collapse:collapse}table.tt td{padding:7px 8px 7px 0;b
     </section>
     <div class="card"><h2>Settings: who does what (applies from the next agent call, no restart)</h2>
       <div id="setmsg"></div><div id="setform" class="mute">loading…</div>
-      <div style="margin-top:10px"><button id="setsave">Save</button> <button id="setreload">Reload</button> <span class="mute small" id="setnote"></span></div></div>
+      <div style="margin-top:10px"><button id="setsave">Save</button> <button id="setreload">Reload</button> <span class="mute small" id="setnote"></span> <span class="warnc small" id="setdirty" role="status"></span></div></div>
     <div class="card"><h2>AI tools and sign-ins</h2><div id="dashtools"></div><div id="customarea"></div></div>
     <div class="card" id="phonecard"><h2>Phones</h2><div id="phonebox" class="mute">loading…</div></div>
   </div>
@@ -601,7 +603,7 @@ async function taskTable(sel,onchange,opts){
   const lab={building:"building now",review:"needs your review",progress:"in progress",new:"not started",done:"done",approved:"approved by you"};
   const actions=k=>{const c=catOf(k,cur);if(!acts)return"";
     const cancel=res.mode==="board"?(k.queuedNext?` <button data-act="cancel" data-kind="next" title="Take it off the priority list">✕ next</button>`:"")+(k.fixRequested?` <button data-act="cancel" data-kind="fix" title="Withdraw your feedback">✕ fix</button>`:""):"";
-    if(c==="review")return `<a class="btnlink" href="/digest#c-${esc(k.id)}">Review task</a>${cancel}`;
+    if(c==="review")return `<a class="btnlink" href="/digest#c-${esc(k.id)}" aria-label="Review task ${esc(k.id)}">Review task</a>${cancel}`;
     if(c==="building")return`<button data-act="changes">Fix…</button>${cancel}`;
     if(c==="progress")return`<button data-act="next">Build next</button> <button data-act="changes">Fix…</button>${cancel}`;
     if(c==="new")return`<button data-act="next">Build next</button>${cancel}`;
@@ -654,7 +656,7 @@ async function stepStart(){
     </div>
     <div class="mute" style="margin-top:12px">When you press Start the relay runs the tests, then works through the tasks one at a time by itself. It never pushes or merges, never ticks a gate that needs your judgement, and stops by itself when everything is done or waiting for you. You can watch it here and stop it any time.</div>
     ${p.startError?`<p class="warnc">${esc(p.startError)}</p>`:""}
-    <div class="nav"><button onclick="go(4)">Back</button><button class="go" id="gostart" ${p.canStart?"":"disabled"}>Start the relay</button></div></div>`;
+    <div class="nav"><button onclick="go(4)">Back</button><button class="go" id="gostart" ${p.canStart?"":"disabled"}>Start relay</button></div></div>`;
   $("#gostart").onclick=async()=>{const r=await startRelay();if(!r.ok){if(!r.needsDecision)RelayDialog.show(r.error,true);return}
     MODE="dash";WZ=await get("/api/wizard");apply();setTimeout(tick,3000)}}
 
@@ -664,7 +666,7 @@ function renderStep(){[null,stepTools,stepProject,stepPlan,stepModels,stepStart]
 const TASK_PAGE_SIZES=[25,50,100];
 let TAB="overview",TT={filter:"todo",q:"",page:1,pageSize:TASK_PAGE_SIZES[0],showAI:false,openTask:false};
 function showTab(n){TAB=n;document.querySelectorAll(".tab").forEach(b=>{const active=b.dataset.tab===n;b.classList.toggle("on",active);b.setAttribute("aria-current",active?"page":"false")});["overview","plan","tasks","setup"].forEach(x=>$("#tab-"+x).hidden=x!==n);
-  if(n==="plan")drawPlanTab();if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();loadSettings();drawPhones()}}
+  if(n==="plan")drawPlanTab();if(n==="tasks")drawTasksTab();if(n==="setup"){drawDashTools();if(!window.SETDIRTY)loadSettings();drawPhones()}}
 /* ------------------------------------------------------------ phones: pairing and paired devices (the phone page is /phone) */
 let PHONE_PAIR=null,PHONE_TIMER=null,PHONE_SEEN=0;
 function ago(t){if(!t)return"never";const s=Date.now()/1000-t;return s<90?"just now":s<5400?Math.round(s/60)+" min ago":s<129600?Math.round(s/3600)+" h ago":Math.round(s/86400)+" days ago"}
@@ -712,7 +714,7 @@ function dashInit(){tick();showTab(TAB)}
 function recText(r){return r&&r.provider?(r.provider+(r.model?" "+r.model.replace(/^opencode\//,""):"")+(r.effort?" · "+r.effort:"")):"follows the setting"}
 function renderNextTasks(s){const q=s.queue;if(!q)return;
   const own=WZ&&WZ.project&&WZ.project.script==="relay.sh"?'<div class="mute small" style="margin-top:6px">This project picks its tasks from its own board, so the real order can differ from this list (it is by task number).</div>':"";
-  $("#nexttasks").innerHTML=(q.next.length?q.next.map(k=>`<div class="tool" style="padding:7px 0"><span style="min-width:46px"><b>${esc(k.id)}</b></span><span style="flex:1;min-width:160px">${esc(k.title)}${k.current?' <span class="tag" style="background:var(--acc)">building now</span>':""}</span><span class="mute small" style="min-width:130px">${esc(recText(k.rec))}</span><span style="width:64px">${bar(k.completion,"task")}</span></div>`).join(""):'<div class="mute">Nothing left to do.</div>')+
+  $("#nexttasks").innerHTML=(q.next.length?q.next.map(k=>`<div class="tool" style="padding:7px 0"><span style="min-width:46px"><b>${esc(k.id)}</b></span><span style="flex:1;min-width:160px">${esc(k.title)}${k.current?' <span class="tag" style="background:var(--btn-pri)">building now</span>':""}</span><span class="mute small" style="min-width:130px">${esc(recText(k.rec))}</span><span style="width:64px">${bar(k.completion,"task")}</span></div>`).join(""):'<div class="mute">'+(q.waitingCount?"Nothing queued. "+q.waitingCount+(q.waitingCount===1?" task is":" tasks are")+" waiting for your review.":"Nothing left to do.")+'</div>')+
     `<div class="row small mute" style="margin-top:10px"><span>${q.doneCount} done · ${q.todoCount} to do · ${q.waitingCount} waiting for you</span><a href="#" id="seeall">See all ${q.total} tasks →</a></div>`+own;
   const nc=$("#needcount");if(nc){nc.textContent=q.waitingCount;$("#needlabel").textContent=q.waitingCount===1?"task waiting for your review":"tasks waiting for your review";const nt=$("#needtasks");if(nt)nt.onclick=e=>{e.preventDefault();TT.filter="review";TT.page=1;TT.touched=true;showTab("tasks")}}
   const sa=$("#seeall");if(sa)sa.onclick=e=>{e.preventDefault();TT.filter="all";TT.q="";TT.page=1;TT.touched=true;showTab("tasks")};
@@ -721,7 +723,7 @@ const CATS=[["review","Needs your review"],["progress","In progress"],["new","No
 function catOf(k,cur){if(k.state==="done")return"done";if(k.approved&&k.state==="owner")return"approved";if(k.state==="owner")return"review";if(k.id===cur)return"building";return k.completion>0?"progress":"new"}
 async function drawTasksTab(revealTask){
   const res=await get("/api/tasks"),cur=(WZ&&WZ.project&&WZ.project.running)?res.current:"",counts={review:0,progress:0,new:0,done:0,building:0,approved:0};res.tasks.forEach(k=>counts[catOf(k,cur)]++);
-  if(!TT.touched)TT.filter=counts.review?"review":"todo";
+  if(!TT.touched)TT.filter=counts.review?"review":"all";
   if(revealTask){
     const index=res.tasks.findIndex(k=>k.id===revealTask);
     TT.page=index<0?1:Math.floor(index/TT.pageSize)+1;
@@ -736,13 +738,13 @@ async function drawTasksTab(revealTask){
     </form></details>`:"";
   const pendingPlan=WZ.project.localWorkspace&&(!WZ.project.hasPlan||!WZ.project.testCommand);
   $("#tab-tasks").innerHTML=`<div class="row2" style="margin-bottom:12px">
-    ${pendingPlan?'<button id="tasks-plan">Plan with AI</button>':""}<a class="btnlink" href="/digest">Review work</a>
+    ${pendingPlan?'<button id="tasks-plan">Plan with AI</button>':""}
     </div>`+addTask+`<div class="card">
     <div class="row2" style="margin-bottom:10px">${chip("review","Needs your review",counts.review)}${chip("progress","In progress",counts.progress+counts.building)}${chip("new","Not started",counts.new)}${chip("done","Done",counts.done)}${chip("all","All",res.tasks.length)}</div>
     <div class="row2" style="margin-bottom:10px"><input id="tt_q" aria-label="Search tasks" size="28" placeholder="Search tasks"><label class="small"><input type="checkbox" id="show-task-ai" ${TT.showAI?"checked":""}> Show AI assignments</label></div>
     ${res.mode==="board"?'<p class="mute small">Final signoff is made on this project’s task board.</p>':""}
     <div id="tasks-status" role="status" class="small"></div>
-    <nav class="row2 task-pagination" aria-label="Task pages">
+    <nav class="row2 task-pagination" aria-label="Task pages" ${res.tasks.length<=TASK_PAGE_SIZES[0]?"hidden":""}>
       <span id="tt_count" class="mute small" role="status"></span>
       <div class="row2">
         <label class="small">Tasks per page <select id="tt_page_size">${TASK_PAGE_SIZES.map(size=>`<option value="${size}" ${size===TT.pageSize?"selected":""}>${size}</option>`).join("")}</select></label>
@@ -824,7 +826,7 @@ function drawProjectAccess(access){
   const labels={passed:"Access confirmed",failed:"Check did not pass",unchecked:"Unchecked",missing:"Tool isn’t installed"};
   $("#project-access-tools").innerHTML=(access.tools||[]).map(tool=>
     `<div class="tool"><span class="nm"><b>${esc(tool.name)}</b><br><span class="small ${tool.status==="passed"?"ok":tool.status==="failed"?"warnc":"mute"}">${labels[tool.status]}</span></span>
-    <button data-access-check="${tool.id}" data-missing="${tool.status==="missing"}" aria-label="Check ${tool.name} access" ${tool.status==="missing"?"disabled":""}>Check access</button></div>`).join("");
+    <button data-access-check="${tool.id}" data-missing="${tool.status==="missing"}" aria-label="Check ${tool.name} access (uses 1 AI call)" ${tool.status==="missing"?"disabled":""}>Check access (uses 1 AI call)</button></div>`).join("");
   $("#project-access-tools").querySelectorAll("[data-access-check]").forEach(button=>button.onclick=()=>changeProjectAccess("check",{provider:button.dataset.accessCheck},button));
   $("#project-access-only").onchange=event=>changeProjectAccess("policy",{checkedOnly:event.target.checked},event.target)
 }
@@ -877,6 +879,7 @@ function render(s){
   const ph=s.phase;
   const waiting=ph&&(ph.kind==="LIMIT"||ph.kind==="IDLE");
   $("#status").textContent=!s.alive?"STOPPED":waiting?"WAITING":"RUNNING";
+  {const n=(s.queue&&s.queue.waitingCount)||0,say=(!s.alive?"Relay stopped":waiting?"Relay is waiting":"Relay is running")+(n?". "+n+(n===1?" task needs":" tasks need")+" your review.":".");if(say!==window.LAST_SAY){window.LAST_SAY=say;const lv=$("#live");if(lv)lv.textContent=say}}
   $("#status").className="pill "+(!s.alive?"stop":waiting?"wait":"run");
   $("#meta").textContent=WZ.project.name||"";
   let n="";
@@ -942,7 +945,7 @@ function drawMode(mode,lanes){
   document.querySelectorAll("#modebox .chip").forEach(b=>{const on=b.dataset.mode===mode;b.classList.toggle("on",on);b.setAttribute("aria-pressed",on)});
   $("#mode-parallel").disabled=!par.available&&mode!=="parallel";
   $("#mode-note").textContent=mode==="parallel"?"The primary AI picks tasks that can go together; the others build them side by side. Merging, testing and review go one at a time."
-    :(par.available?"":par.reason||"")}
+    :("One task at a time: build it, test it, review it, then the next."+(par.available?"":" "+(par.reason||"")))}
 async function setMode(mode){
   const r=await post("/api/settings/mode",{mode});
   if(!r.saved){RelayDialog.show((r.errors&&r.errors[0])||r.error||"The mode could not be changed.",true);return}
@@ -1007,6 +1010,7 @@ function fillRole(r,keepModel,keepEffort){
   const autoE=isBuilder?'<option value="auto">auto (follow each task)</option>':"";
   es.innerHTML=selOpts(ef.map(x=>({id:x,label:x})),keepEffort,autoE);if(keepEffort==="auto"&&autoE)es.value="auto"}
 async function loadSettings(){
+  window.SETDIRTY=false;{const n=$("#setdirty");if(n)n.textContent=""}
   const models=get("/api/models",3000).catch(()=>null);
   let s;try{s=await get("/api/settings")}catch(error){$("#setform").textContent="Settings could not load. Press Reload to retry.";return}
   SET=s;if(s.error){$("#setform").textContent=s.error;return}const e=s.effective;
@@ -1016,15 +1020,15 @@ async function loadSettings(){
   $("#setmsg").innerHTML=(s.errors||[]).map(x=>`<div class="bad">✗ ${esc(x)}</div>`).join("")+(s.warnings||[]).map(x=>`<div class="warnc">${esc(x)}</div>`).join("");
   const fm=e.models||{},N=[1,2,3,5,10,15,20,30,50];
   $("#setform").innerHTML=ROLES.map(([r,l])=>{const v=e.roles[r]||{provider:"none"};
-    return `<div class="srow"><b>${l}</b><select id="p_${r}">${optList(["none",...s.providers],v.provider||"none")}</select><select id="m_${r}"></select><select id="e_${r}"></select></div>`}).join("")
-  +`<div class="srow"><b>Builder backups</b><span style="grid-column:2/-1">${["copilot","opencode","codex"].map(f=>`<label style="margin-right:12px"><input type="checkbox" id="fb_${f}" ${e.fallbackBuilders.includes(f)?"checked":""}> ${f}</label>`).join("")} · max backup calls per day <select id="fbmax">${N.map(n=>`<option ${n===e.fallbackMaxPerDay?"selected":""}>${n}</option>`).join("")}${N.includes(e.fallbackMaxPerDay)?"":`<option selected>${e.fallbackMaxPerDay}</option>`}</select></span></div>
+    return `<div class="srow"><b>${l}</b><select id="p_${r}" aria-label="${l} AI">${optList(["none",...s.providers],v.provider||"none")}</select><select id="m_${r}" aria-label="${l} model"></select><select id="e_${r}" aria-label="${l} reasoning"></select></div>`}).join("")
+  +`<div class="srow"><b>Builder backups</b><span style="grid-column:2/-1">${["copilot","opencode","codex"].map(f=>`<label style="margin-right:12px"><input type="checkbox" id="fb_${f}" ${e.fallbackBuilders.includes(f)?"checked":""}> ${f}</label>`).join("")} · max backup calls per day <select id="fbmax" aria-label="Most backup calls per day">${N.map(n=>`<option ${n===e.fallbackMaxPerDay?"selected":""}>${n}</option>`).join("")}${N.includes(e.fallbackMaxPerDay)?"":`<option selected>${e.fallbackMaxPerDay}</option>`}</select></span></div>
    ${["dispatcher","reviewer"].map(role=>{const selected=(e.fallbackRoles||{})[role]||[];
      const order=[...new Set([...selected,"codex","copilot","opencode","claude"])];
      return `<div class="srow"><b>${role==="dispatcher"?"Dispatcher backups":"Reviewer backups"}</b><span style="grid-column:2/-1">${order.map(p=>`<label style="margin-right:12px"><input type="checkbox" data-role-backup="${role}" value="${p}" ${selected.includes(p)?"checked":""}> ${p}</label>`).join("")}</span></div>`}).join("")}
-   <div class="srow"><b>Backup models</b><span style="grid-column:2/-1">Copilot <select id="fm_copilot">${selOpts(CAT.copilot.models,fm.copilot)}</select> · OpenCode <select id="fm_opencode">${selOpts(CAT.opencode.models,fm.opencode)}</select></span></div>
+   <div class="srow"><b>Backup models</b><span style="grid-column:2/-1">Copilot <select id="fm_copilot" aria-label="Copilot backup model">${selOpts(CAT.copilot.models,fm.copilot)}</select> · OpenCode <select id="fm_opencode" aria-label="OpenCode backup model">${selOpts(CAT.opencode.models,fm.opencode)}</select></span></div>
    <div class="srow"><b>AI asks for permission</b><span style="grid-column:2/-1"><label style="margin-right:14px"><input type="radio" name="apmode" value="ask" ${(e.approvals||{}).mode!=="auto"?"checked":""}> I decide (Accept / Deny buttons)</label><label><input type="radio" name="apmode" value="auto" ${(e.approvals||{}).mode==="auto"?"checked":""}> An AI judge decides</label></span></div>
-   <div class="srow" id="judgerow"><b>The judge</b><select id="p_judge">${optList(["reviewer",...s.providers],((e.approvals||{}).judge||{}).provider||"reviewer")}</select><select id="m_judge"></select><select id="e_judge"></select></div>
-   <div class="srow"><b></b><span style="grid-column:2/-1"><label><input type="checkbox" id="ap_secrets" ${(e.approvals||{}).autoSecrets?"checked":""}> Let the judge also decide about secret-looking files and uploads <span class="warnc small">(not recommended: otherwise those always wait for you)</span></label><div class="mute small">The judge says approve, deny, or "ask" when only you can know. Everything it decides is listed under Recent permission decisions.</div></span></div>
+   <div class="srow" id="judgerow"><b>The judge</b><select id="p_judge" aria-label="Judge AI">${optList(["reviewer",...s.providers],((e.approvals||{}).judge||{}).provider||"reviewer")}</select><select id="m_judge" aria-label="Judge model"></select><select id="e_judge" aria-label="Judge reasoning"></select></div>
+   <div class="srow"><b></b><span style="grid-column:2/-1"><label><input type="checkbox" id="ap_secrets" ${(e.approvals||{}).autoSecrets?"checked":""}> Let the judge decide about secret-looking files and uploads too <span class="warnc small">(leave this off unless you accept the risk: when it is off, Relay always asks you first)</span></label><div class="mute small">The judge says approve, deny, or "ask" when only you can know. Everything it decides is listed under Recent permission decisions.</div></span></div>
    <div class="srow"><b>Idle chores</b><span style="grid-column:2/-1">${[["backend","Java backend tests"],["digest","Review digest"]].map(([k,l])=>`<label style="margin-right:12px"><input type="checkbox" id="ic_${k}" ${(e.idleChores||[]).includes(k)?"checked":""}> ${l}</label>`).join("")}<span class="mute small">(no AI; they run while every AI is out of usage)</span></span></div>
    <details><summary>Routing capabilities and run limits</summary><p class="small">Declare only capabilities you have verified for each tool. Add required capabilities with a REQUIRES: line in a task, or requiredCapabilities in relay.project.json. A connector is not assumed to transfer between AIs.</p>
    ${s.providers.map(p=>`<label class="srow"><b>${esc(p)} capabilities</b><input style="grid-column:2/-1" data-capabilities="${esc(p)}" value="${esc(((e.capabilities||{})[p]||[]).join(", "))}" placeholder="repository, shell, notion"></label>`).join("")}
@@ -1050,7 +1054,8 @@ async function saveSettings(){
   if(j.saved)loadSettings()}
 
 /* ------------------------------------------------------------ header buttons and timers */
-$("#setsave").onclick=saveSettings;$("#setreload").onclick=loadSettings;document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+$("#setsave").onclick=saveSettings;window.SETDIRTY=false;const markDirty=()=>{window.SETDIRTY=true;const n=$("#setdirty");if(n)n.textContent="Unsaved changes"};$("#setform").addEventListener("input",markDirty);$("#setform").addEventListener("change",markDirty);
+$("#setreload").onclick=async()=>{if(window.SETDIRTY&&!await RelayDialog.ask({heading:"Discard unsaved changes?",detail:"Reloading puts back the settings that are saved.",action:"Discard changes"}))return;loadSettings()};document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 async function startRelay(){
   if(WZ.project.localWorkspace){
     const setup=await get("/api/setup").catch(()=>null);

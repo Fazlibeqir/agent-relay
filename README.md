@@ -2,7 +2,7 @@
 
 Notion is optional. Standard projects keep their tasks in `tasks/*.md` and use Relay's built-in review queue. No Notion account or connector is needed for that workflow. Project X's Notion board is a custom integration, rather than a dependency of Agent Relay.
 
-Choose **Create project**, give it a name, then select **Add a task** and describe the change in your own words. You can save tasks before connecting an AI. When you’re ready to build, select **Plan with AI**, read the proposal, and approve the plan. **Start building** becomes available after the plan is ready. Building uses two AI tools so a separate tool can review the work.
+Choose **Create project**, give it a name, then select **Add a task** and describe the change in your own words. You can save tasks before connecting an AI. When you’re ready to build, select **Plan with AI**, read the proposal, and approve the plan. **Start relay** becomes available after the plan is ready. Building uses two AI tools so a separate tool can review the work.
 
 Open **Review work** to see what to try, watch any attached clips, and approve the result or ask for changes. Use **Open a project folder** to return to a project Relay already knows. Model choices and other setup options stay under **Advanced setup** or **AIs & settings**.
 
@@ -139,7 +139,7 @@ required to be a different model from the one that built the task.
 
 ## Routing and recovery
 
-The file-based runner persists task phases, provider calls and evidence under `.relay/` (ignored by git). On **Start building**, it resumes the same task when the saved branch, commit, task, test command, and project files match. If the builder had already finished, Relay saves the recorded changes and runs tests without calling the builder again. A completed test run resumes directly into review when its evidence still matches.
+The file-based runner persists task phases, provider calls and evidence under `.relay/` (ignored by git). On **Start relay**, it resumes the same task when the saved branch, commit, task, test command, and project files match. If the builder had already finished, Relay saves the recorded changes and runs tests without calling the builder again. A completed test run resumes directly into review when its evidence still matches.
 
 If a build stopped after edits that do not match a saved checkpoint, inspect the files and use **Approve task retry** under **Technical details** to continue from them. This also applies to older checkpoints that lack file fingerprints. Retrying by approval resets the task budget and keeps the daily provider limits. A stale lock with a verified dead owner can be released; an unknown lock or reused live PID stays blocked for inspection.
 
